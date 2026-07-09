@@ -1,0 +1,19 @@
+node_modules/
+dist/
+__pycache__/
+*.pyc
+*.pyo
+*.db
+.venv/
+.idea/
+.vscode/
+.DS_Store
+# 根目录 .env 忽略（可能含密钥）
+.env
+# 但保留 frontend 下的环境变量模板（不含敏感信息）
+!frontend/.env.production
+!frontend/.env.development
+# 忽略各子目录的 .env
+backend/.env
+frontend/.env.local
+frontend/.env.*.local

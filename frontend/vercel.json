@@ -1,0 +1,19 @@
+# Vercel 部署前端（vercel.json）
+# 部署步骤：
+# 1. cd frontend && npm install && npm run build  （先本地 build 一次）
+#    或者直接在 Vercel 控制台设 build command = "cd ../frontend && npm install && npm run build"
+# 2. 把整个项目推 GitHub
+# 3. 打开 https://vercel.com → Import Project → 选仓库
+# 4. Root Directory 设为 frontend
+# 5. 配置：
+#    Build Command:  npm run build
+#    Output Dir:     dist
+# 6. 部署完成后会得到 https://xxx.vercel.app
+
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "vite",
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+}

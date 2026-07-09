@@ -1,0 +1,92 @@
+// API 基础封装：自动从 localStorage 注入 token，401 自动跳登录
+// 生产环境会被 Vite 替换为绝对 URL（见 .env.production）
+// VITE_API_BASE 默认空字符串 = 同源访问（本地开发 / 单机部署）
+const BASE = (import.meta.env.VITE_API_BASE || '') + '/api'
+
+const TOKEN_KEY = 'auth_token'
+const USER_KEY = 'auth_user'
+
+export function getToken() {
+  return localStorage.getItem(TOKEN_KEY)
+}
+
+export function setAuth(token, user) {
+  localStorage.setItem(TOKEN_KEY, token)
+  localStorage.setItem(USER_KEY, JSON.stringify(user))
+}
+
+export function getStoredUser() {
+  try { return JSON.parse(localStorage.getItem(USER_KEY)) }
+  catch { return null }
+}
+
+export function clearAuth() {
+  localStorage.removeItem(TOKEN_KEY)
+  localStorage.removeItem(USER_KEY)
+}
+
+function notify401() {
+  // 触发全局跳登录
+  window.dispatchEvent(new Event('auth:logout'))
+}
+
+async function request(path, options = {}) {
+  const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) }
+  const token = getToken()
+  if (token) headers['Authorization'] = 'Bearer ' + token
+
+  const res = await fetch(BASE + path, {
+    ...options,
+    headers,
+  })
+
+  if (res.status === 401) {
+    notify401()
+    let detail = '未登录'
+    try { detail = (await res.json()).detail || detail } catch {}
+    throw new Error(detail)
+  }
+
+  if (!res.ok) {
+    let msg = `HTTP ${res.status}`
+    try {
+      const data = await res.json()
+      msg = data.detail || msg
+    } catch {}
+    throw new Error(msg)
+  }
+  return res.json()
+}
+
+export const api = {
+  // ===== 认证 =====
+  login: (phone, password) =>
+    request('/auth/login', { method: 'POST', body: JSON.stringify({ phone, password }) }),
+  register: (name, phone, password) =>
+    request('/auth/register', { method: 'POST', body: JSON.stringify({ name, phone, password }) }),
+  me: () => request('/auth/me'),
+
+  // ===== 设备 =====
+  listRobots: (params = {}) => {
+    const q = new URLSearchParams()
+    Object.entries(params).forEach(([k, v]) => {
+      if (v && v !== '全部' && v !== '') q.set(k, v)
+    })
+    const qs = q.toString()
+    return request(`/robots${qs ? '?' + qs : ''}`)
+  },
+  createRobot: (data) => request('/robots', { method: 'POST', body: JSON.stringify(data) }),
+  updateStatus: (id, data) =>
+    request(`/robots/${id}/status`, { method: 'POST', body: JSON.stringify(data) }),
+  deleteRobot: (id) => request(`/robots/${id}`, { method: 'DELETE' }),
+  getStats: () => request('/stats'),
+  listLogs: (params = {}) => {
+    const q = new URLSearchParams()
+    Object.entries(params).forEach(([k, v]) => { if (v) q.set(k, v) })
+    const qs = q.toString()
+    return request(`/logs${qs ? '?' + qs : ''}`)
+  },
+
+  // ===== 用户管理 =====
+  listUsers: () => request('/users'),
+}

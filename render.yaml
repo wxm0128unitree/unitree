@@ -1,0 +1,36 @@
+# Render 部署配置
+# 部署步骤：
+# 1. 把整个项目推到 GitHub 私有仓库
+# 2. 打开 https://dashboard.render.com → New → Blueprint
+# 3. 连你的仓库，选这个 render.yaml 文件
+# 4. 设置环境变量（JWT_SECRET 必填，DASHBOARD 同步填）
+# 5. 点 Apply → 等 3-5 分钟
+
+services:
+  - type: web
+    name: robot-inventory-api
+    runtime: python
+    plan: free                       # 免费版
+    rootDir: backend                 # 子目录
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 1"
+    healthCheckPath: /api/health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.0
+      - key: JWT_SECRET
+        sync: false                  # Render UI 手动填
+      - key: DATABASE_URL
+        sync: false                  # Render UI 手动填 Turso URL
+      - key: DATABASE_AUTH_TOKEN
+        sync: false                  # Render UI 手动填 Turso Token
+      - key: ADMIN_NAME
+        value: 王曦明
+      - key: ADMIN_PHONE
+        value: 13083401281
+      - key: ADMIN_PASSWORD
+        value: "111111"
+      - key: ALLOW_REGISTER
+        value: "1"
+      - key: CORS_ORIGINS
+        value: "https://你的vercel域名.vercel.app"

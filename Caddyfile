@@ -1,0 +1,46 @@
+# ====================================================================
+# Caddy 自动 HTTPS 反向代理配置
+# ====================================================================
+# 用法：
+#   - 把下面的 robot.your-domain.cn 改成你的真实域名
+#   - 服务器需要在阿里云备案，且 DNS 已指向本机 IP
+#   - 首次启动会自动通过 Let's Encrypt / ZeroSSL 签发证书并定期续期
+# ====================================================================
+
+# 全局选项
+{
+    email admin@your-domain.cn   # 改成你可收邮件的邮箱，证书过期提醒用
+}
+
+# HTTP -> HTTPS 强制跳转
+http://robot.your-domain.cn {
+    redir https://robot.your-domain.cn{uri} permanent
+}
+
+# 主站：自动 HTTPS + 反代到 backend
+robot.your-domain.cn {
+    encode zstd gzip
+    reverse_proxy backend:8000 {
+        header_up Host {host}
+        header_up X-Real-IP {remote}
+        header_up X-Forwarded-For {remote}
+        header_up X-Forwarded-Proto {scheme}
+    }
+
+    # 安全头（Caddy 自带 + 业务增强）
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "SAMEORIGIN"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        -Server
+    }
+
+    # 日志
+    log {
+        output file /data/caddy/access.log {
+            roll_size 50mb
+            roll_keep 10
+        }
+    }
+}
