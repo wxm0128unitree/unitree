@@ -8,7 +8,6 @@
 
 databases:
   - name: unitree-db
-    plan: free                       # 免费 PostgreSQL（30 天后过期，部署后建议换 Supabase）
     databaseName: unitree
     user: unitree
 
@@ -17,7 +16,6 @@ services:
   - type: web
     name: unitree-backend
     runtime: python
-    plan: free
     rootDir: backend
     buildCommand: "pip install --upgrade pip && pip install -r requirements.txt"
     startCommand: "python run_prod.py"
@@ -44,9 +42,10 @@ services:
         value: "10000"
 
   # ─── Frontend（Vite 静态站点） ─────────────────────────────
-  - type: static
+  # 注意：Blueprint 不支持 type:static，必须用 type:web + runtime:static
+  - type: web
     name: unitree-frontend
-    plan: free
+    runtime: static
     rootDir: frontend
     buildCommand: "npm ci && npm run build"
     staticPublishPath: ./dist
