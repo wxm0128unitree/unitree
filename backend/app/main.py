@@ -104,6 +104,26 @@ def api_bootstrap():
 
 # ========== 鉴权 API ==========
 
+
+@app.post("/api/admin/init", tags=["\u7cfb\u7edf"])
+def api_admin_init(db: Session = Depends(get_db)):
+    """\u624b\u52a8\u521d\u59cb\u5316\u7ba1\u7406\u5458\u8d26\u53f7\uff08\u4ec5\u5f53\u6570\u636e\u5e93\u4e3a\u7a7a\u65f6\u751f\u6548\uff09"""
+    existing = db.query(models.User).first()
+    if existing:
+        return {"ok": False, "message": "\u6570\u636e\u5e93\u5df2\u6709\u7528\u6237\uff0c\u8df3\u8fc7\u521d\u59cb\u5316"}
+    user = models.User(
+        name=os.environ.get("ADMIN_NAME", "\u738b\u66e6\u660e"),
+        phone=os.environ.get("ADMIN_PHONE", "13083401281"),
+        password_hash=hash_password(os.environ.get("ADMIN_PASSWORD", "111111")),
+        is_admin=1,
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return {"ok": True, "message": f"\u7ba1\u7406\u5458\u521b\u5efa\u6210\u529f: {user.name} / {user.phone}"}
+
+
+
 @app.post("/api/auth/register", response_model=schemas.Token, tags=["\u8ba4\u8bc1"])
 def api_register(payload: schemas.UserCreate, db: Session = Depends(get_db)):
     """注册新用户；可通过环境变量 ALLOW_REGISTER=0 关闭该入口"""
