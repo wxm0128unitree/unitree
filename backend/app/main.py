@@ -236,7 +236,23 @@ def api_logs(
 
 # ========== 用户管理（管理员） ==========
 
-@app.get("/api/users", response_model=List[schemas.UserOut], tags=["\u7528\u6237"])
+@app.put("/api/users/me", response_model=schemas.UserOut, tags=["用户"])
+def api_update_me(
+    payload: schemas.UserUpdate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """修改当前登录用户的信息（名字或密码）"""
+    if payload.name is not None:
+        current_user.name = payload.name.strip()
+    if payload.password is not None:
+        current_user.password_hash = hash_password(payload.password)
+    db.commit()
+    db.refresh(current_user)
+    return schemas.UserOut.model_validate(current_user)
+
+
+@app.get("/api/users", response_model=List[schemas.UserOut], tags=["用户"])
 def api_list_users(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
