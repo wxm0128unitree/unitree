@@ -44,9 +44,8 @@ services:
         value: "10000"
 
   # ─── Frontend（Vite 静态站点） ─────────────────────────────
-  - type: web
+  - type: static
     name: unitree-frontend
-    runtime: static
     plan: free
     rootDir: frontend
     buildCommand: "npm ci && npm run build"
