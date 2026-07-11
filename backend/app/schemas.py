@@ -108,6 +108,14 @@ class UserOut(BaseModel):
         from_attributes = True
 
 
+
+
+class UserUpdate(BaseModel):
+    """修改用户信息请求体"""
+    name: Optional[str] = Field(default=None, min_length=1, max_length=32)
+    password: Optional[str] = Field(default=None, min_length=6, max_length=64)
+
+
 class Token(BaseModel):
     """登录响应"""
     access_token: str

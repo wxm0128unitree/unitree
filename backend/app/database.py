@@ -18,6 +18,10 @@ DATABASE_URL = os.environ.get("DATABASE_URL")
 if DATABASE_URL and DATABASE_URL.startswith("libsql"):
     SQLALCHEMY_DATABASE_URL = "sqlite:///"  # 占位符，用 creator 自定义连接
     USE_LIBSQL = True
+elif DATABASE_URL and DATABASE_URL.startswith("postgres"):
+    # 用 psycopg3 (新版本) 替代 psycopg2，更快且 Python 3.12 兼容
+    SQLALCHEMY_DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+psycopg://", 1)
+    USE_LIBSQL = False
 elif DATABASE_URL:
     SQLALCHEMY_DATABASE_URL = DATABASE_URL
     USE_LIBSQL = False

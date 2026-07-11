@@ -17,6 +17,30 @@ JWT_SECRET = os.environ.get("JWT_SECRET", "yushu-inventory-default-secret-CHANGE
 JWT_ALG = "HS256"
 TOKEN_EXPIRE_HOURS = 24 * 30  # 30 天
 
+# 仅在导入期校验一次，避免每个请求都跑
+_DEFAULT_JWT_SECRET = "yushu-inventory-default-secret-CHANGE-ME"
+if JWT_SECRET == _DEFAULT_JWT_SECRET:
+    # 开发环境允许，生产环境强制要求设置
+    if os.environ.get("ALLOW_INSECURE_DEFAULT_SECRET") == "1":
+        print(
+            "[WARN] JWT_SECRET 未设置，使用默认值。"
+            "生产环境必须设置 JWT_SECRET（当前通过 ALLOW_INSECURE_DEFAULT_SECRET=1 放行）。"
+        )
+    else:
+        raise SystemExit(
+            "\n[FATAL] JWT_SECRET 未设置或为默认值，生产环境必须设置！\n"
+            "  生成方式：python -c \"import secrets; print(secrets.token_urlsafe(64))\"\n"
+            "  启动时传入：JWT_SECRET=<生成的密钥> python run_prod.py\n"
+            "  或写入 .env 文件：JWT_SECRET=<生成的密钥>\n"
+            "  临时开发可用：ALLOW_INSECURE_DEFAULT_SECRET=1 跳过校验（不要在生产用！）\n"
+        )
+
+if len(JWT_SECRET) < 32:
+    raise SystemExit(
+        f"[FATAL] JWT_SECRET 长度过短（{len(JWT_SECRET)} < 32），"
+        "请使用至少 32 字符的随机密钥。"
+    )
+
 # OAuth2 password flow 仅为 OpenAPI 文档；实际请求传 Header
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
 
@@ -87,3 +111,15 @@ def get_optional_user(
     except HTTPException:
         return None
     return db.query(models.User).filter(models.User.id == payload["uid"]).first()
+
+
+def get_current_admin(
+    current_user: models.User = Depends(get_current_user),
+) -> models.User:
+    """依赖注入：要求当前用户必须是管理员（is_admin=1）"""
+    if current_user.is_admin != 1:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="需要管理员权限",
+        )
+    return current_user

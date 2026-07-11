@@ -34,10 +34,16 @@ services:
     build: .
     container_name: robot-backend
     restart: unless-stopped
+    init: true                       # 让 supercronic 能正确回收子进程
     env_file:
       - .env
     volumes:
-      - robot_data:/data           # 持久化 SQLite
+      - robot_data:/data             # /data 下含 robot_inventory.db 和 /data/backups/*
+                                    #   - robot_inventory.db      主库
+                                    #   - backups/daily/*.db      自动每日备份（保留 30 天）
+                                    #   - backups/weekly/*.db     自动每周备份（保留 12 周）
+                                    #   - backups/manual/*.db     管理员通过 API 手动触发
+                                    #   - backups/backup.log      备份运行日志
     networks: [appnet]
     # 不对外暴露端口——只走 caddy 反代
 

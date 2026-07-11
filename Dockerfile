@@ -21,9 +21,25 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# 系统依赖（curl 用于健康检查）
-RUN apt-get update && apt-get install -y --no-install-recommends curl \
+# 系统依赖：curl 健康检查、tzdata 让 supercronic 用东八区
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        curl \
+        tzdata \
     && rm -rf /var/lib/apt/lists/*
+
+# 装 supercronic（小体积、单二进制、容器友好的 cron）
+ARG SUPERCRONIC_VERSION=v0.2.33
+RUN ARCH=$(dpkg --print-architecture) && \
+    case "$ARCH" in \
+        amd64) SC_ARCH=amd64 ;; \
+        arm64) SC_ARCH=arm64 ;; \
+        armhf) SC_ARCH=armv7 ;; \
+        *) echo "unsupported arch $ARCH" && exit 1 ;; \
+    esac && \
+    curl -fsSL "https://github.com/aptible/supercronic/releases/download/${SUPERCRONIC_VERSION}/supercronic-linux-${SC_ARCH}" \
+        -o /usr/local/bin/supercronic && \
+    chmod +x /usr/local/bin/supercronic && \
+    supercronic -version || true
 
 # 装后端依赖
 COPY backend/requirements.txt /app/requirements.txt
@@ -35,19 +51,42 @@ COPY backend/ /app/
 # 从前端构建阶段复制 dist
 COPY --from=frontend-build /web/dist /app/frontend/dist
 
-# 数据卷：SQLite / 上传文件 / 持久化
-RUN mkdir -p /data
+# 数据卷：SQLite / 上传文件 / 持久化；backup 目录放 /data/backups
+RUN mkdir -p /data/backups/daily /data/backups/weekly /data/backups/manual
 ENV DB_PATH=/data/robot_inventory.db \
     FRONTEND_DIST=/app/frontend/dist \
     ALLOW_REGISTER=1 \
     ADMIN_NAME="王曦明" \
     ADMIN_PHONE=13083401281 \
-    ADMIN_PASSWORD=111111
+    ADMIN_PASSWORD=111111 \
+    BACKUP_ROOT=/data/backups \
+    BACKUP_KEEP_DAILY=30 \
+    BACKUP_KEEP_WEEKLY=12 \
+    TZ=Asia/Shanghai
+
+# 自动备份 crontab：
+#   每天凌晨 3 点 跑一次 daily 备份
+#   每周一凌晨 4 点跑一次 weekly 备份
+# supercronic 时区用上面 ENV TZ=Asia/Shanghai
+RUN printf '0 3 * * * cd /app && /usr/local/bin/python -m app.backup daily >> /data/backups/backup.log 2>&1\n' \
+           '0 4 * * 1 cd /app && /usr/local/bin/python -m app.backup weekly >> /data/backups/backup.log 2>&1\n' \
+       > /etc/crontab.backup
 
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
   CMD curl -fsS http://127.0.0.1:8000/api/health || exit 1
 
-# 用 4 个 worker + uvicorn（生产级）
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]
+# 同时启动 uvicorn 和 supercronic：
+#   - uvicorn 4 worker 是数据库 backend
+#   - supercronic 负责每日定时备份
+# 用一个 shell 启动脚本同时拉起两者，任意一个挂掉容器退出
+RUN printf '#!/bin/sh\nset -e\n\
+echo "[INFO] starting supercronic for daily backups..."\n\
+/usr/local/bin/supercronic /etc/crontab.backup >> /data/backups/crond.log 2>&1 &\n\
+SUPER_PID=$!\n\
+echo "[INFO] starting uvicorn..."\n\
+exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4\n' > /entrypoint.sh && \
+    chmod +x /entrypoint.sh
+
+CMD ["/entrypoint.sh"]

@@ -13,9 +13,10 @@ import os
 from app.database import get_db, init_db, SessionLocal, single_process_bootstrap
 from app import schemas, crud
 from app import models
+from app import backup as backup_mod
 from app.auth import (
     hash_password, verify_password, create_access_token,
-    get_current_user, get_optional_user,
+    get_current_user, get_current_admin, get_optional_user,
 )
 
 app = FastAPI(
@@ -103,6 +104,26 @@ def api_bootstrap():
 
 
 # ========== 鉴权 API ==========
+
+
+@app.post("/api/admin/init", tags=["\u7cfb\u7edf"])
+def api_admin_init(db: Session = Depends(get_db)):
+    """\u624b\u52a8\u521d\u59cb\u5316\u7ba1\u7406\u5458\u8d26\u53f7\uff08\u4ec5\u5f53\u6570\u636e\u5e93\u4e3a\u7a7a\u65f6\u751f\u6548\uff09"""
+    existing = db.query(models.User).first()
+    if existing:
+        return {"ok": False, "message": "\u6570\u636e\u5e93\u5df2\u6709\u7528\u6237\uff0c\u8df3\u8fc7\u521d\u59cb\u5316"}
+    user = models.User(
+        name=os.environ.get("ADMIN_NAME", "\u738b\u66e6\u660e"),
+        phone=os.environ.get("ADMIN_PHONE", "13083401281"),
+        password_hash=hash_password(os.environ.get("ADMIN_PASSWORD", "111111")),
+        is_admin=1,
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return {"ok": True, "message": f"\u7ba1\u7406\u5458\u521b\u5efa\u6210\u529f: {user.name} / {user.phone}"}
+
+
 
 @app.post("/api/auth/register", response_model=schemas.Token, tags=["\u8ba4\u8bc1"])
 def api_register(payload: schemas.UserCreate, db: Session = Depends(get_db)):
@@ -193,8 +214,10 @@ def api_update_status(
 def api_delete_robot(
     robot_id: int,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user),
+    current_user: models.User = Depends(get_current_admin),
 ):
+    """删除设备（仅管理员）。注：当前为硬删除并级联清理日志；
+    如需审计可恢失，请改用软删除（设置 deleted_at）。"""
     return crud.delete_robot(db, robot_id, operator=current_user.name)
 
 
@@ -216,15 +239,67 @@ def api_logs(
 
 # ========== 用户管理（管理员） ==========
 
-@app.get("/api/users", response_model=List[schemas.UserOut], tags=["\u7528\u6237"])
-def api_list_users(
+@app.put("/api/users/me", response_model=schemas.UserOut, tags=["用户"])
+def api_update_me(
+    payload: schemas.UserUpdate,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    """列出所有用户"""
+    """修改当前登录用户的信息（名字或密码）"""
+    if payload.name is not None:
+        current_user.name = payload.name.strip()
+    if payload.password is not None:
+        current_user.password_hash = hash_password(payload.password)
+    db.commit()
+    db.refresh(current_user)
+    return schemas.UserOut.model_validate(current_user)
+
+
+@app.get("/api/users", response_model=List[schemas.UserOut], tags=["用户"])
+def api_list_users(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_admin),
+):
+    """列出所有用户（仅管理员）"""
     return db.query(models.User).order_by(models.User.created_at).all()
 
 
+
+# ========== 备份 API（仅管理员） ==========
+
+@app.post("/api/backup/run", tags=["系统"])
+def api_backup_run(
+    current_user: models.User = Depends(get_current_admin),
+):
+    """手动触发一次备份。
+    返回备份文件路径和大小。"""
+    try:
+        target = backup_mod.manual_backup()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"备份失败: {e}")
+    return {"ok": True, "path": str(target), "size": target.stat().st_size}
+
+
+@app.get("/api/backup/list", tags=["系统"])
+def api_backup_list(
+    current_user: models.User = Depends(get_current_admin),
+):
+    """列出所有备份文件（按 daily/weekly/manual 分组），仅管理员。"""
+    root = backup_mod._backup_root()
+    out = {"daily": [], "weekly": [], "manual": []}
+    for kind in out.keys():
+        d = root / kind
+        if not d.exists():
+            continue
+        for f in sorted(d.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True):
+            if f.is_file():
+                st = f.stat()
+                out[kind].append({
+                    "name": f.name,
+                    "size": st.st_size,
+                    "mtime": int(st.st_mtime),
+                })
+    return out
 # ========== 静态前端（SPA fallback） ==========
 
 def _frontend_ready():
