@@ -300,6 +300,8 @@ def api_backup_list(
                     "mtime": int(st.st_mtime),
                 })
     return out
+
+
 # ========== 静态前端（SPA fallback） ==========
 
 def _frontend_ready():
