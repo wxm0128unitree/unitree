@@ -6,7 +6,8 @@ const DEFAULT_STATUSES = ['在库', '借出', '维修中']
 export default function AddRobotModal({ onClose, onSubmit, knownModels = [] }) {
   const [assetCode, setAssetCode] = useState('')
   const [model, setModel] = useState(knownModels[0] || 'G1')
-  const [holder, setHolder] = useState('')  // 设备归属人
+  const [ownerDepartment, setOwnerDepartment] = useState('')
+  const [ownerName, setOwnerName] = useState('')
   const [status, setStatus] = useState('在库')
   const [location, setLocation] = useState('')
 
@@ -50,14 +51,12 @@ export default function AddRobotModal({ onClose, onSubmit, knownModels = [] }) {
       alert('请填写资产编号')
       return
     }
-    if (!holder.trim()) {
-      alert('请填写持有人（设备归属人）')
-      return
-    }
     onSubmit({
       asset_code: assetCode.trim(),
       model,
-      holder: holder.trim(),
+      holder: ownerName.trim(),
+      owner_department: ownerDepartment.trim(),
+      owner_name: ownerName.trim(),
       status,
       location: location.trim(),
     })
@@ -111,14 +110,17 @@ export default function AddRobotModal({ onClose, onSubmit, knownModels = [] }) {
         </div>
 
         <div className="field">
-          <label>持有人 *</label>
+          <label>资产归属部门</label>
           <input
             type="text"
-            value={holder}
-            onChange={e => setHolder(e.target.value)}
-            placeholder="这台设备归属谁名下（真实姓名 / 部门）"
+            value={ownerDepartment}
+            onChange={e => setOwnerDepartment(e.target.value)}
+            placeholder="如：研发部"
           />
-          <div className="hint">💡 设备归属人，例如：张三、研发部-李四</div>
+        </div>
+        <div className="field">
+          <label>资产负责人</label>
+          <input type="text" value={ownerName} onChange={e => setOwnerName(e.target.value)} placeholder="如：张三" />
         </div>
 
         <div className="field">

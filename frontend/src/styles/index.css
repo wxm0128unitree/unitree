@@ -210,6 +210,9 @@ body {
 }
 .robot-card .actions button:hover { opacity: 0.88; }
 .robot-card .actions button.danger { background: #fff; color: var(--danger); border: 1px solid var(--danger); }
+.robot-card .actions button.secondary { background: #fff; color: var(--primary); border: 1px solid var(--primary); }
+.meta-line { color: var(--text-secondary); font-size: 12px; margin-top: 6px; }
+.archive-toggle { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
 
 /* ===== 弹窗 ===== */
 .modal-mask {
@@ -255,7 +258,7 @@ body {
 }
 .modal .radio-item:hover { border-color: var(--primary); background: #f0f7ff; }
 .modal .radio-item.active { border-color: var(--primary); background: #e6f4ff; color: var(--primary); font-weight: 500; }
-.modal input[type="text"], .modal input[type="search"] {
+.modal input[type="text"], .modal input[type="search"], .modal input[type="datetime-local"] {
   width: 100%;
   padding: 10px 12px;
   border: 1px solid var(--border);
@@ -280,6 +283,8 @@ body {
 .modal .actions .primary { background: var(--primary); color: #fff; }
 .modal .actions .cancel { background: #f5f5f5; color: var(--text); }
 .modal .hint { font-size: 12px; color: var(--text-secondary); margin-top: 6px; }
+.modal-wide { max-width: 640px; }
+.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
 
 /* ===== Toast ===== */
 .toast {
@@ -312,6 +317,25 @@ body {
 }
 .log-item .top { display: flex; justify-content: space-between; color: var(--text-secondary); font-size: 12px; }
 .log-item .action { font-weight: 600; color: var(--primary); }
+.log-detail { margin-top: 4px; color: var(--text-secondary); font-size: 12px; }
+.pagination { display: flex; justify-content: center; align-items: center; gap: 12px; margin: 16px 0; }
+.pagination button, .panel button { padding: 7px 12px; border: 1px solid var(--border); border-radius: 7px; background: #fff; cursor: pointer; }
+.pagination button:disabled, .panel button:disabled { opacity: .45; cursor: not-allowed; }
+.admin-page { display: grid; gap: 12px; }
+.panel { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; box-shadow: var(--shadow); }
+.panel h2 { margin: 0 0 12px; font-size: 17px; }
+.panel h3 { margin: 16px 0 8px; font-size: 14px; }
+.panel-title { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
+.panel-title p, .muted { color: var(--text-secondary); margin: 4px 0; }
+.inline-form { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.inline-form input { padding: 8px 10px; border: 1px solid var(--border); border-radius: 7px; }
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; }
+th, td { padding: 10px 8px; border-bottom: 1px solid var(--border); text-align: left; white-space: nowrap; }
+.row-actions { display: flex; gap: 5px; }
+.notice { padding: 9px 12px; background: #e6f4ff; border-radius: 7px; }
+.backup-list > div { display: flex; justify-content: space-between; align-items: center; padding: 9px 0; border-bottom: 1px solid var(--border); }
+.danger-text { color: var(--danger); }
 
 /* ===== 移动端适配 ===== */
 @media (max-width: 768px) {
@@ -322,6 +346,13 @@ body {
   .toolbar select, .toolbar input, .toolbar button { font-size: 13px; padding: 7px 10px; }
   .stat-card .num { font-size: 22px; }
   .header h1 { font-size: 16px; }
+  .form-grid { grid-template-columns: 1fr; }
+  .tabs { overflow-x: auto; }
+  .tabs button { min-width: 110px; }
+  .header { align-items: flex-start; }
+  .header-user { padding: 6px 8px; }
+  .user-phone { display: none; }
+  .inline-form input { width: 100%; }
 }
 
 /* ===== Header 用户区 ===== */
@@ -464,13 +495,17 @@ body {
   color: #6b7280;
   margin-top: 8px;
 }
-.auth-footer a {
+.auth-footer .link-button {
   color: var(--primary);
   cursor: pointer;
   margin-left: 4px;
   font-weight: 500;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  font: inherit;
 }
-.auth-footer a:hover { text-decoration: underline; }
+.auth-footer .link-button:hover { text-decoration: underline; }
 
 /* ===== 自定义筛选下拉（支持新增） ===== */
 .filter-select { position: relative; display: inline-block; }

@@ -43,6 +43,7 @@ export default function Login({ onSuccess, onSwitchToRegister }) {
               placeholder="11 位手机号"
               autoFocus
               maxLength={11}
+              autoComplete="username"
             />
           </div>
           <div className="auth-field">
@@ -52,6 +53,7 @@ export default function Login({ onSuccess, onSwitchToRegister }) {
               value={password}
               onChange={e => setPassword(e.target.value)}
               placeholder="请输入密码"
+              autoComplete="current-password"
             />
           </div>
 
@@ -63,7 +65,7 @@ export default function Login({ onSuccess, onSwitchToRegister }) {
 
           <div className="auth-footer">
             还没有账号？
-            <a onClick={onSwitchToRegister}>立即注册</a>
+            <button type="button" className="link-button" onClick={onSwitchToRegister}>立即注册</button>
           </div>
         </form>
       </div>

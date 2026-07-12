@@ -33,6 +33,8 @@ import shutil
 import subprocess
 import sys
 import time
+import json
+import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -55,7 +57,7 @@ def _sqlite_db_path() -> Path:
 
 
 def _backup_root() -> Path:
-    root = Path(os.environ.get("BACKUP_ROOT", "/data/backups"))
+    root = Path(os.environ.get("BACKUP_ROOT", str(Path(tempfile.gettempdir()) / "unitree-backups")))
     root.mkdir(parents=True, exist_ok=True)
     return root
 
@@ -137,6 +139,29 @@ def _run_libsql_backup(dst_file: Path) -> None:
         conn.close()
 
 
+def _json_value(value):
+    return value.isoformat() if isinstance(value, datetime) else value
+
+
+def _run_portable_backup(dst_file: Path) -> None:
+    """使用 SQLAlchemy 生成 PostgreSQL/libSQL/SQLite 均可恢复的完整 JSON 快照。"""
+    from app.database import engine
+    from app import models
+    dst_file.parent.mkdir(parents=True, exist_ok=True)
+    tables = [models.User.__table__, models.Robot.__table__, models.OperationLog.__table__]
+    payload = {"format": "unitree-backup", "version": 1, "created_at": datetime.now().isoformat(), "tables": {}}
+    with engine.connect() as conn:
+        for table in tables:
+            rows = conn.execute(table.select()).mappings().all()
+            payload["tables"][table.name] = [
+                {key: _json_value(value) for key, value in dict(row).items()} for row in rows
+            ]
+    temp = dst_file.with_suffix(dst_file.suffix + ".tmp")
+    temp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    json.loads(temp.read_text(encoding="utf-8"))
+    temp.replace(dst_file)
+
+
 def _dump_libsql_via_select(conn) -> bytes:
     """退化路径：用 SELECT 拿所有表数据，生成 INSERT SQL。
     适合数据量小的内部工具；Turso 上的生产大库建议用其自带导出功能。"""
@@ -178,12 +203,9 @@ def daily_backup() -> Path:
         ext = "db"
         target = root / "daily" / f"robot_{day}.{ext}"
         _run_sqlite_backup(_sqlite_db_path(), target)
-    elif kind == "postgres":
-        target = root / "daily" / f"robot_{day}.sql"
-        _run_pg_backup(target)
-    elif kind == "libsql":
-        target = root / "daily" / f"robot_{day}.sql"
-        _run_libsql_backup(target)
+    elif kind in {"postgres", "libsql"}:
+        target = root / "daily" / f"robot_{day}.json"
+        _run_portable_backup(target)
     else:
         raise RuntimeError(f"unsupported DB kind: {kind}")
 
@@ -201,12 +223,9 @@ def weekly_backup() -> Path:
     if kind == "sqlite":
         target = root / "weekly" / f"robot_{iso_week}.db"
         _run_sqlite_backup(_sqlite_db_path(), target)
-    elif kind == "postgres":
-        target = root / "weekly" / f"robot_{iso_week}.sql"
-        _run_pg_backup(target)
-    elif kind == "libsql":
-        target = root / "weekly" / f"robot_{iso_week}.sql"
-        _run_libsql_backup(target)
+    elif kind in {"postgres", "libsql"}:
+        target = root / "weekly" / f"robot_{iso_week}.json"
+        _run_portable_backup(target)
     else:
         raise RuntimeError(f"unsupported DB kind: {kind}")
 
@@ -224,15 +243,84 @@ def manual_backup() -> Path:
     if kind == "sqlite":
         target = root / "manual" / f"robot_{ts}.db"
         _run_sqlite_backup(_sqlite_db_path(), target)
-    elif kind == "postgres":
-        target = root / "manual" / f"robot_{ts}.sql"
-        _run_pg_backup(target)
-    elif kind == "libsql":
-        target = root / "manual" / f"robot_{ts}.sql"
-        _run_libsql_backup(target)
+    elif kind in {"postgres", "libsql"}:
+        target = root / "manual" / f"robot_{ts}.json"
+        _run_portable_backup(target)
     else:
         raise RuntimeError(f"unsupported DB kind: {kind}")
     return target
+
+
+def resolve_backup(kind: str, name: str) -> Path:
+    """只允许访问备份根目录下的已知分类，阻止路径穿越。"""
+    if kind not in {"daily", "weekly", "manual"}:
+        raise ValueError("备份分类无效")
+    if not name or Path(name).name != name:
+        raise ValueError("备份文件名无效")
+    target = (_backup_root() / kind / name).resolve()
+    root = _backup_root().resolve()
+    if root not in target.parents or not target.is_file():
+        raise FileNotFoundError("备份文件不存在")
+    return target
+
+
+def restore_backup(kind: str, name: str) -> Path:
+    """从管理员选定的备份恢复；恢复前自动生成一份安全备份。"""
+    source = resolve_backup(kind, name)
+    if source.suffix.lower() == ".json":
+        safety = manual_backup()
+        _restore_portable_backup(source)
+        return safety
+    if _detect_db_kind() != "sqlite" or source.suffix.lower() != ".db":
+        raise ValueError("备份格式与当前数据库不兼容")
+    import sqlite3
+    with sqlite3.connect(f"file:{source}?mode=ro", uri=True) as check:
+        if check.execute("PRAGMA quick_check").fetchone()[0] != "ok":
+            raise ValueError("备份完整性校验失败")
+        required = {row[0] for row in check.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        if not {"robots", "operation_logs", "users"}.issubset(required):
+            raise ValueError("备份缺少必要数据表")
+    safety = manual_backup()
+    _run_sqlite_backup(source, _sqlite_db_path())
+    return safety
+
+
+def _restore_portable_backup(source: Path) -> None:
+    from app.database import engine
+    from app import models
+    payload = json.loads(source.read_text(encoding="utf-8"))
+    if payload.get("format") != "unitree-backup" or payload.get("version") != 1:
+        raise ValueError("备份格式或版本无效")
+    expected = {"users", "robots", "operation_logs"}
+    if set(payload.get("tables", {})) != expected:
+        raise ValueError("备份缺少必要数据表")
+    tables = {t.name: t for t in [models.User.__table__, models.Robot.__table__, models.OperationLog.__table__]}
+    converted = {}
+    for name, rows in payload["tables"].items():
+        table = tables[name]
+        columns = {c.name: c for c in table.columns}
+        converted[name] = []
+        for row in rows:
+            if not isinstance(row, dict) or not set(row).issubset(columns):
+                raise ValueError(f"备份表 {name} 包含无效字段")
+            clean = {}
+            for key, value in row.items():
+                if value is not None and columns[key].type.python_type is datetime:
+                    value = datetime.fromisoformat(value)
+                clean[key] = value
+            converted[name].append(clean)
+    with engine.begin() as conn:
+        conn.execute(tables["operation_logs"].delete())
+        conn.execute(tables["robots"].delete())
+        conn.execute(tables["users"].delete())
+        for name in ("users", "robots", "operation_logs"):
+            if converted[name]:
+                conn.execute(tables[name].insert(), converted[name])
+        if engine.dialect.name == "postgresql":
+            for name in ("users", "robots", "operation_logs"):
+                conn.exec_driver_sql(
+                    f"SELECT setval(pg_get_serial_sequence('{name}', 'id'), COALESCE((SELECT MAX(id) FROM {name}), 1), true)"
+                )
 
 
 def main(argv: list[str] | None = None) -> int:

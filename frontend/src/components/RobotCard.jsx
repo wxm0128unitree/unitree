@@ -1,4 +1,4 @@
-export default function RobotCard({ robot, onClick, onDelete }) {
+export default function RobotCard({ robot, onClick, onDelete, onEdit, onInventory, onRestore }) {
   const statusIcon = {
     '在库': '🟢',
     '借出': '🔵',
@@ -14,7 +14,7 @@ export default function RobotCard({ robot, onClick, onDelete }) {
       </div>
       <div className="holder">
         <span className="holder-icon">👤</span>
-        <span className="holder-text">{robot.holder || '未指定'}</span>
+        <span className="holder-text">{[robot.owner_department, robot.owner_name || robot.holder].filter(Boolean).join(' / ') || '未指定归属'}</span>
       </div>
       <div className={`status status-${robot.status}`}>
         {statusIcon[robot.status] || '⚪'} {robot.status}
@@ -22,9 +22,12 @@ export default function RobotCard({ robot, onClick, onDelete }) {
       <div className="location">
         {robot.location || <span style={{ color: '#bbb' }}>（无去向信息）</span>}
       </div>
+      {robot.borrower && <div className="meta-line">借用人：{robot.borrower}{robot.expected_return_at ? ` · 预计 ${new Date(robot.expected_return_at).toLocaleDateString('zh-CN')} 归还` : ''}</div>}
+      {robot.last_inventory_at && <div className="meta-line">最近盘点：{new Date(robot.last_inventory_at).toLocaleDateString('zh-CN')} · {robot.last_inventory_by}</div>}
       <div className="actions" onClick={e => e.stopPropagation()}>
-        <button onClick={onClick}>修改状态</button>
-        <button className="danger" onClick={onDelete}>删除</button>
+        {robot.is_archived ? <button onClick={onRestore}>恢复</button> : <>
+          <button onClick={onClick}>状态</button><button className="secondary" onClick={onEdit}>编辑</button><button className="secondary" onClick={onInventory}>盘点</button><button className="danger" onClick={onDelete}>归档</button>
+        </>}
       </div>
     </div>
   )

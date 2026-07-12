@@ -5,13 +5,18 @@ import StatusModal from '../components/StatusModal'
 import AddRobotModal from '../components/AddRobotModal'
 import FilterSelect from '../components/FilterSelect'
 import Toast from '../components/Toast'
+import EditRobotModal from '../components/EditRobotModal'
+import InventoryModal from '../components/InventoryModal'
 
-export default function Dashboard() {
+export default function Dashboard({ user }) {
   const [robots, setRobots] = useState([])
   const [stats, setStats] = useState({ total: 0, in_stock: 0, borrowed: 0, in_repair: 0 })
   const [loading, setLoading] = useState(true)
   const [filters, setFilters] = useState({ model: '全部', status: '全部', holder: '全部', keyword: '' })
   const [activeRobot, setActiveRobot] = useState(null)
+  const [editingRobot, setEditingRobot] = useState(null)
+  const [inventoryRobot, setInventoryRobot] = useState(null)
+  const [includeArchived, setIncludeArchived] = useState(false)
   const [showAdd, setShowAdd] = useState(false)
   const [toast, setToast] = useState(null)
 
@@ -24,7 +29,7 @@ export default function Dashboard() {
     setLoading(true)
     try {
       const [list, st] = await Promise.all([
-        api.listRobots(filters),
+        api.listRobots({ ...filters, include_archived: includeArchived ? 'true' : '' }),
         api.getStats(),
       ])
       setRobots(list)
@@ -36,7 +41,7 @@ export default function Dashboard() {
     }
   }
 
-  useEffect(() => { load() }, [filters.model, filters.status])
+  useEffect(() => { load() }, [filters.model, filters.status, includeArchived])
 
   const handleSearch = () => load()
 
@@ -63,14 +68,27 @@ export default function Dashboard() {
   }
 
   const handleDelete = async (robot) => {
-    if (!confirm(`确认删除设备 ${robot.asset_code} ？此操作会同时删除该设备的所有日志。`)) return
+    if (!confirm(`确认归档设备 ${robot.asset_code}？设备和全部日志都会保留，可由管理员恢复。`)) return
     try {
       await api.deleteRobot(robot.id)
-      showToast('已删除')
+      showToast('设备已归档')
       load()
     } catch (e) {
       showToast(e.message, 'error')
     }
+  }
+
+  const handleEdit = async payload => {
+    try { await api.editRobot(editingRobot.id, payload); setEditingRobot(null); showToast('设备资料已更新'); load() }
+    catch (e) { showToast(e.message, 'error') }
+  }
+  const handleInventory = async payload => {
+    try { await api.inventoryRobot(inventoryRobot.id, payload); setInventoryRobot(null); showToast('盘点已记录'); load() }
+    catch (e) { showToast(e.message, 'error') }
+  }
+  const handleRestore = async robot => {
+    try { await api.restoreRobot(robot.id); showToast('设备已恢复'); load() }
+    catch (e) { showToast(e.message, 'error') }
   }
 
   // 从已有数据中动态提取所有出现过的型号 / 状态 / 持有人
@@ -134,6 +152,8 @@ export default function Dashboard() {
         />
         <button onClick={handleSearch}>搜索</button>
         <button className="ghost" onClick={() => setShowAdd(true)}>+ 新增设备</button>
+        <button className="ghost" onClick={() => api.exportRobots().catch(e => showToast(e.message, 'error'))}>导出 CSV</button>
+        {user.is_admin === 1 && <label className="archive-toggle"><input type="checkbox" checked={includeArchived} onChange={e => setIncludeArchived(e.target.checked)} /> 显示归档</label>}
       </div>
 
       {/* 设备列表 */}
@@ -153,6 +173,9 @@ export default function Dashboard() {
               robot={r}
               onClick={() => setActiveRobot(r)}
               onDelete={() => handleDelete(r)}
+              onEdit={() => setEditingRobot(r)}
+              onInventory={() => setInventoryRobot(r)}
+              onRestore={() => handleRestore(r)}
             />
           ))}
         </div>
@@ -173,6 +196,8 @@ export default function Dashboard() {
           knownModels={allModels}
         />
       )}
+      {editingRobot && <EditRobotModal robot={editingRobot} onClose={() => setEditingRobot(null)} onSubmit={handleEdit} />}
+      {inventoryRobot && <InventoryModal robot={inventoryRobot} onClose={() => setInventoryRobot(null)} onSubmit={handleInventory} />}
 
       {toast && <Toast message={toast.msg} type={toast.type} />}
     </div>

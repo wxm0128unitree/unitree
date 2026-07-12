@@ -2,13 +2,17 @@
 FastAPI 路由定义
 严格遵循开发手册：极简、去流程化、以状态为中心
 """
-from fastapi import FastAPI, Depends, Query, HTTPException
+from fastapi import FastAPI, Depends, Query, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 from typing import Optional, List
 import os
+import csv
+import io
+from datetime import datetime
 
 from app.database import get_db, init_db, SessionLocal, single_process_bootstrap
 from app import schemas, crud
@@ -22,7 +26,7 @@ from app.auth import (
 app = FastAPI(
     title="\u5b87\u6811\u673a\u5668\u4eba\u8bbe\u5907\u7ba1\u7406\u7cfb\u7edf",
     description="\u53bb\u6d41\u7a0b\u5316\u3001\u4ee5\u72b6\u6001\u4e3a\u4e2d\u5fc3\u7684\u8bbe\u5907\u51fa\u5165\u5e93\u7ba1\u7406",
-    version="2.1.0",
+    version="2.2.0",
 )
 
 # CORS：默认允许所有（部署后可设 CORS_ORIGINS 收紧）
@@ -61,8 +65,12 @@ def _bootstrap_admin():
             is_admin=1,
         )
         db.add(admin)
-        db.commit()
-        print(f"[INFO] Bootstrap admin created: {admin.name} / {admin.phone}")
+        try:
+            db.commit()
+            print(f"[INFO] Bootstrap admin created: {admin.name} / {admin.phone}")
+        except IntegrityError:
+            db.rollback()
+            print("[INFO] Bootstrap admin was created by another worker")
     finally:
         db.close()
 
@@ -107,8 +115,13 @@ def api_bootstrap():
 
 
 @app.post("/api/admin/init", tags=["\u7cfb\u7edf"])
-def api_admin_init(db: Session = Depends(get_db)):
+def api_admin_init(
+    db: Session = Depends(get_db), x_init_token: Optional[str] = Header(None),
+):
     """\u624b\u52a8\u521d\u59cb\u5316\u7ba1\u7406\u5458\u8d26\u53f7\uff08\u4ec5\u5f53\u6570\u636e\u5e93\u4e3a\u7a7a\u65f6\u751f\u6548\uff09"""
+    expected = os.environ.get("ADMIN_INIT_TOKEN")
+    if not expected or x_init_token != expected:
+        raise HTTPException(status_code=404, detail="not found")
     existing = db.query(models.User).first()
     if existing:
         return {"ok": False, "message": "\u6570\u636e\u5e93\u5df2\u6709\u7528\u6237\uff0c\u8df3\u8fc7\u521d\u59cb\u5316"}
@@ -155,6 +168,11 @@ def api_login(payload: schemas.UserLogin, db: Session = Depends(get_db)):
     user = db.query(models.User).filter(models.User.phone == payload.phone).first()
     if not user or not verify_password(payload.password, user.password_hash):
         raise HTTPException(status_code=401, detail="\u624b\u673a\u53f7\u6216\u5bc6\u7801\u4e0d\u6b63\u786e")
+    if user.is_active != 1:
+        raise HTTPException(status_code=403, detail="账号已停用，请联系管理员")
+    user.last_login_at = datetime.now()
+    db.commit()
+    db.refresh(user)
     token = create_access_token(user)
     return schemas.Token(
         access_token=token,
@@ -177,8 +195,13 @@ def api_list_robots(
     keyword: Optional[str] = Query(None),
     holder: Optional[str] = Query(None),
     db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+    include_archived: bool = Query(False),
 ):
-    return crud.list_robots(db, model=model, status=status, keyword=keyword, holder=holder)
+    if include_archived and current_user.is_admin != 1:
+        raise HTTPException(status_code=403, detail="只有管理员可以查看归档设备")
+    return crud.list_robots(db, model=model, status=status, keyword=keyword, holder=holder,
+                            include_archived=include_archived)
 
 
 @app.post("/api/robots", response_model=schemas.RobotOut, tags=["\u8bbe\u5907"])
@@ -191,11 +214,24 @@ def api_create_robot(
 
 
 @app.get("/api/robots/{robot_id}", response_model=schemas.RobotOut, tags=["\u8bbe\u5907"])
-def api_get_robot(robot_id: int, db: Session = Depends(get_db)):
+def api_get_robot(
+    robot_id: int, db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
     r = db.query(models.Robot).filter(models.Robot.id == robot_id).first()
     if not r:
         raise HTTPException(status_code=404, detail="\u8bbe\u5907\u4e0d\u5b58\u5728")
+    if r.is_archived and current_user.is_admin != 1:
+        raise HTTPException(status_code=404, detail="设备不存在")
     return r
+
+
+@app.put("/api/robots/{robot_id}", response_model=schemas.RobotOut, tags=["设备"])
+def api_edit_robot(
+    robot_id: int, payload: schemas.RobotEdit, db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    return crud.edit_robot(db, robot_id, payload, current_user.name)
 
 
 @app.post("/api/robots/{robot_id}/status", response_model=schemas.RobotOut, tags=["\u8bbe\u5907"])
@@ -216,25 +252,88 @@ def api_delete_robot(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_admin),
 ):
-    """删除设备（仅管理员）。注：当前为硬删除并级联清理日志；
-    如需审计可恢失，请改用软删除（设置 deleted_at）。"""
+    """归档设备（仅管理员），保留全部日志并可恢复。"""
     return crud.delete_robot(db, robot_id, operator=current_user.name)
+
+
+@app.post("/api/robots/{robot_id}/restore", response_model=schemas.RobotOut, tags=["设备"])
+def api_restore_robot(
+    robot_id: int, db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_admin),
+):
+    return crud.restore_robot(db, robot_id, current_user.name)
+
+
+@app.post("/api/robots/{robot_id}/inventory", response_model=schemas.RobotOut, tags=["设备"])
+def api_inventory_robot(
+    robot_id: int, payload: schemas.InventoryUpdate, db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    return crud.inventory_robot(db, robot_id, payload, current_user.name)
 
 
 # ========== 统计 & 日志 ==========
 
 @app.get("/api/stats", response_model=schemas.RobotStats, tags=["\u7edf\u8ba1"])
-def api_stats(db: Session = Depends(get_db)):
+def api_stats(
+    db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user),
+):
     return crud.get_stats(db)
 
 
-@app.get("/api/logs", response_model=List[schemas.OperationLogOut], tags=["\u65e5\u5fd7"])
+@app.get("/api/logs", response_model=schemas.LogPage, tags=["\u65e5\u5fd7"])
 def api_logs(
     robot_id: Optional[int] = Query(None),
-    limit: int = Query(200, le=1000),
+    operator: Optional[str] = Query(None),
+    action: Optional[str] = Query(None),
+    date_from: Optional[datetime] = Query(None),
+    date_to: Optional[datetime] = Query(None),
+    keyword: Optional[str] = Query(None),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
 ):
-    return crud.list_logs(db, robot_id=robot_id, limit=limit)
+    items, total = crud.list_logs(db, robot_id=robot_id, operator=operator, action=action,
+        date_from=date_from, date_to=date_to, keyword=keyword, page=page, page_size=page_size)
+    return {"items": items, "total": total, "page": page, "page_size": page_size}
+
+
+@app.get("/api/export/robots.csv", tags=["导出"])
+def api_export_robots(
+    include_archived: bool = Query(False), db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    if include_archived and current_user.is_admin != 1:
+        raise HTTPException(status_code=403, detail="只有管理员可以导出归档设备")
+    robots = crud.list_robots(db, include_archived=include_archived)
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["资产编号", "型号", "状态", "归属部门", "资产负责人", "当前借用人", "当前位置",
+                     "借用用途", "借出时间", "预计归还", "维修描述", "备注", "是否归档", "最近盘点时间", "盘点人"])
+    for r in robots:
+        writer.writerow([r.asset_code, r.model, r.status, r.owner_department, r.owner_name, r.borrower,
+            r.location, r.purpose, r.borrowed_at or "", r.expected_return_at or "", r.repair_description,
+            r.remark, "是" if r.is_archived else "否", r.last_inventory_at or "", r.last_inventory_by])
+    data = "\ufeff" + output.getvalue()
+    return StreamingResponse(iter([data.encode("utf-8")]), media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": "attachment; filename=robots.csv"})
+
+
+@app.get("/api/export/logs.csv", tags=["导出"])
+def api_export_logs(
+    db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user),
+):
+    items, _ = crud.list_logs(db, page=1, page_size=10000)
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["时间", "设备ID", "操作人", "操作", "原状态", "新状态", "原位置", "新位置", "备注"])
+    for row in items:
+        writer.writerow([row.created_at, row.robot_id, row.operator, row.action, row.before_status,
+            row.after_status, row.before_location, row.after_location, row.note])
+    data = "\ufeff" + output.getvalue()
+    return StreamingResponse(iter([data.encode("utf-8")]), media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": "attachment; filename=operation_logs.csv"})
 
 
 # ========== 用户管理（管理员） ==========
@@ -262,6 +361,46 @@ def api_list_users(
 ):
     """列出所有用户（仅管理员）"""
     return db.query(models.User).order_by(models.User.created_at).all()
+
+
+@app.post("/api/users", response_model=schemas.UserOut, tags=["用户"])
+def api_create_user(
+    payload: schemas.AdminUserCreate, db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_admin),
+):
+    if db.query(models.User).filter(models.User.phone == payload.phone).first():
+        raise HTTPException(status_code=400, detail="该手机号已注册")
+    user = models.User(name=payload.name, phone=payload.phone,
+        password_hash=hash_password(payload.password), is_admin=payload.is_admin, is_active=1)
+    db.add(user); db.commit(); db.refresh(user)
+    return user
+
+
+@app.put("/api/users/{user_id}", response_model=schemas.UserOut, tags=["用户"])
+def api_admin_update_user(
+    user_id: int, payload: schemas.AdminUserUpdate, db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_admin),
+):
+    user = db.query(models.User).filter(models.User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    if user.id == current_user.id and payload.is_active == 0:
+        raise HTTPException(status_code=400, detail="不能停用当前登录账号")
+    was_admin = user.is_admin == 1 and user.is_active == 1
+    if was_admin and payload.is_admin == 0:
+        admins = db.query(models.User).filter(models.User.is_admin == 1, models.User.is_active == 1).count()
+        if admins <= 1:
+            raise HTTPException(status_code=400, detail="必须至少保留一名启用的管理员")
+    if was_admin and payload.is_active == 0:
+        admins = db.query(models.User).filter(models.User.is_admin == 1, models.User.is_active == 1).count()
+        if admins <= 1:
+            raise HTTPException(status_code=400, detail="必须至少保留一名启用的管理员")
+    if payload.name is not None: user.name = payload.name.strip()
+    if payload.password is not None: user.password_hash = hash_password(payload.password)
+    if payload.is_admin is not None: user.is_admin = payload.is_admin
+    if payload.is_active is not None: user.is_active = payload.is_active
+    db.commit(); db.refresh(user)
+    return user
 
 
 
@@ -300,6 +439,38 @@ def api_backup_list(
                     "mtime": int(st.st_mtime),
                 })
     return out
+
+
+@app.post("/api/backup/restore", tags=["系统"])
+def api_backup_restore(
+    kind: str = Query(...), name: str = Query(...), confirm: str = Query(...),
+    current_user: models.User = Depends(get_current_admin),
+):
+    if confirm != "RESTORE":
+        raise HTTPException(status_code=400, detail="恢复确认文字不正确")
+    try:
+        safety = backup_mod.restore_backup(kind, name)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    return {"ok": True, "safety_backup": safety.name, "message": "恢复完成，请重新登录并核对数据"}
+
+
+@app.get("/api/backup/download", tags=["系统"])
+def api_backup_download(
+    kind: str = Query(...), name: str = Query(...),
+    current_user: models.User = Depends(get_current_admin),
+):
+    try:
+        target = backup_mod.resolve_backup(kind, name)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return FileResponse(target, filename=target.name, media_type="application/octet-stream")
 
 
 # ========== 静态前端（SPA fallback） ==========

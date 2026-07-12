@@ -3,7 +3,8 @@
 - 本地开发：SQLite 文件（默认 ./robot_inventory.db）
 - 线上部署：Turso (libSQL) — 设置 DATABASE_URL=libsql://xxx.turso.io
 """
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 import os
@@ -87,18 +88,64 @@ def init_db():
     """初始化数据库（checkfirst=True → IF NOT EXISTS，安全幂等）"""
     from app import models  # noqa
     Base.metadata.create_all(bind=engine, checkfirst=True)
+    _migrate_existing_database()
+
+
+def _migrate_existing_database():
+    """为没有 Alembic 的旧部署补齐新增列；每次启动可安全重复执行。"""
+    migrations = {
+        "robots": {
+            "owner_department": "VARCHAR(64) DEFAULT ''",
+            "owner_name": "VARCHAR(32) DEFAULT ''",
+            "borrower": "VARCHAR(32) DEFAULT ''",
+            "purpose": "VARCHAR(128) DEFAULT ''",
+            "borrowed_at": "TIMESTAMP NULL",
+            "expected_return_at": "TIMESTAMP NULL",
+            "repair_description": "TEXT DEFAULT ''",
+            "is_archived": "INTEGER NOT NULL DEFAULT 0",
+            "archived_at": "TIMESTAMP NULL",
+            "last_inventory_at": "TIMESTAMP NULL",
+            "last_inventory_by": "VARCHAR(64) DEFAULT ''",
+            "last_inventory_location": "VARCHAR(128) DEFAULT ''",
+            "inventory_note": "TEXT DEFAULT ''",
+        },
+        "users": {
+            "is_active": "INTEGER NOT NULL DEFAULT 1",
+            "last_login_at": "TIMESTAMP NULL",
+        },
+    }
+    tables = set(inspect(engine).get_table_names())
+    for table, columns in migrations.items():
+        if table not in tables:
+            continue
+        for name, definition in columns.items():
+            try:
+                with engine.begin() as conn:
+                    existing = {c["name"] for c in inspect(conn).get_columns(table)}
+                    if name in existing:
+                        continue
+                    conn.exec_driver_sql(
+                        f'ALTER TABLE "{table}" ADD COLUMN "{name}" {definition}'
+                    )
+            except SQLAlchemyError as exc:
+                # 多 worker 首次部署可能同时迁移；另一进程已添加该列时视为成功。
+                message = str(exc).lower()
+                if "duplicate column" not in message and "already exists" not in message:
+                    raise
 
 
 def single_process_bootstrap():
     """多进程下只让一个进程执行 bootstrap"""
     try:
+        if engine.dialect.name == "postgresql":
+            with engine.begin() as conn:
+                conn.exec_driver_sql("SELECT pg_advisory_xact_lock(82736491)")
+                count = conn.exec_driver_sql("SELECT COUNT(*) FROM users").scalar() or 0
+                return count == 0
         conn = engine.connect()
         conn.exec_driver_sql("BEGIN IMMEDIATE")
         try:
-            from app import models
-            count = conn.exec_driver_sql(
-                "SELECT COUNT(*) FROM users"
-            ).scalar() or 0
+            count = conn.exec_driver_sql("SELECT COUNT(*) FROM users").scalar() or 0
             return count == 0
         finally:
             conn.exec_driver_sql("COMMIT")

@@ -16,6 +16,13 @@ class RobotBase(BaseModel):
     status: str = Field(default="在库", description="状态")
     location: str = Field(default="", max_length=128, description="去向/持有人/故障原因")
     holder: str = Field(default="", max_length=32, description="设备归属人（谁提单/名下）")
+    owner_department: str = Field(default="", max_length=64, description="资产归属部门")
+    owner_name: str = Field(default="", max_length=32, description="资产负责人")
+    borrower: str = Field(default="", max_length=32, description="当前借用人")
+    purpose: str = Field(default="", max_length=128, description="借用用途")
+    borrowed_at: Optional[datetime] = None
+    expected_return_at: Optional[datetime] = None
+    repair_description: str = Field(default="", max_length=1000)
     remark: Optional[str] = ""
 
 
@@ -28,12 +35,35 @@ class RobotUpdate(BaseModel):
     status: str = Field(..., description="新状态：在库/借出/维修中")
     location: str = Field(default="", max_length=128, description="去向信息")
     note: Optional[str] = Field(default="", description="备注")
+    borrower: str = Field(default="", max_length=32)
+    purpose: str = Field(default="", max_length=128)
+    expected_return_at: Optional[datetime] = None
+    repair_description: str = Field(default="", max_length=1000)
 
+
+class RobotEdit(BaseModel):
+    asset_code: str = Field(..., min_length=1, max_length=64)
+    model: str = Field(..., min_length=1, max_length=32)
+    owner_department: str = Field(default="", max_length=64)
+    owner_name: str = Field(default="", max_length=32)
+    location: str = Field(default="", max_length=128)
+    remark: str = Field(default="", max_length=2000)
+
+
+class InventoryUpdate(BaseModel):
+    location: str = Field(default="", max_length=128)
+    note: str = Field(default="", max_length=1000)
 
 class RobotOut(RobotBase):
     id: int
     created_at: datetime
     updated_at: datetime
+    is_archived: int = 0
+    archived_at: Optional[datetime] = None
+    last_inventory_at: Optional[datetime] = None
+    last_inventory_by: str = ""
+    last_inventory_location: str = ""
+    inventory_note: str = ""
 
     class Config:
         from_attributes = True
@@ -58,6 +88,7 @@ class OperationLogOut(BaseModel):
     after_location: Optional[str]
     note: Optional[str]
     created_at: datetime
+    asset_code: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -102,6 +133,8 @@ class UserOut(BaseModel):
     name: str
     phone: str
     is_admin: int
+    is_active: int = 1
+    last_login_at: Optional[datetime] = None
     created_at: datetime
 
     class Config:
@@ -114,6 +147,24 @@ class UserUpdate(BaseModel):
     """修改用户信息请求体"""
     name: Optional[str] = Field(default=None, min_length=1, max_length=32)
     password: Optional[str] = Field(default=None, min_length=6, max_length=64)
+
+
+class AdminUserCreate(UserCreate):
+    is_admin: int = Field(default=0, ge=0, le=1)
+
+
+class AdminUserUpdate(BaseModel):
+    name: Optional[str] = Field(default=None, min_length=1, max_length=32)
+    password: Optional[str] = Field(default=None, min_length=6, max_length=64)
+    is_admin: Optional[int] = Field(default=None, ge=0, le=1)
+    is_active: Optional[int] = Field(default=None, ge=0, le=1)
+
+
+class LogPage(BaseModel):
+    items: list[OperationLogOut]
+    total: int
+    page: int
+    page_size: int
 
 
 class Token(BaseModel):

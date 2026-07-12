@@ -20,7 +20,20 @@ class Robot(Base):
     status = Column(String(16), nullable=False, default="在库", index=True)
     location = Column(String(128), default="")  # 去向/持有人/故障原因（动态）
     holder = Column(String(32), default="", index=True)  # 设备归属：谁提单/名下
+    owner_department = Column(String(64), default="", index=True)  # 资产归属部门
+    owner_name = Column(String(32), default="", index=True)  # 资产负责人
+    borrower = Column(String(32), default="", index=True)  # 当前借用人
+    purpose = Column(String(128), default="")  # 借用用途
+    borrowed_at = Column(DateTime, nullable=True)
+    expected_return_at = Column(DateTime, nullable=True, index=True)
+    repair_description = Column(Text, default="")
     remark = Column(Text, default="")  # 备注
+    is_archived = Column(Integer, nullable=False, default=0, index=True)
+    archived_at = Column(DateTime, nullable=True)
+    last_inventory_at = Column(DateTime, nullable=True)
+    last_inventory_by = Column(String(64), default="")
+    last_inventory_location = Column(String(128), default="")
+    inventory_note = Column(Text, default="")
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 
@@ -54,4 +67,6 @@ class User(Base):
     phone = Column(String(20), unique=True, nullable=False, index=True)  # 账号（手机号）
     password_hash = Column(String(255), nullable=False)  # bcrypt 哈希
     is_admin = Column(Integer, default=0)  # 1=管理员, 0=普通用户
+    is_active = Column(Integer, nullable=False, default=1)  # 1=启用, 0=停用
+    last_login_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.now)

@@ -3,6 +3,8 @@ import Dashboard from './pages/Dashboard'
 import Logs from './pages/Logs'
 import Login from './pages/Login'
 import Register from './pages/Register'
+import Users from './pages/Users'
+import Backups from './pages/Backups'
 import Toast from './components/Toast'
 import { getToken, getStoredUser, clearAuth, api } from './api'
 
@@ -97,10 +99,14 @@ export default function App() {
         <button className={tab === 'logs' ? 'active' : ''} onClick={() => setTab('logs')}>
           📋 操作日志
         </button>
+        {user.is_admin === 1 && <button className={tab === 'users' ? 'active' : ''} onClick={() => setTab('users')}>👥 用户管理</button>}
+        {user.is_admin === 1 && <button className={tab === 'backups' ? 'active' : ''} onClick={() => setTab('backups')}>💾 备份恢复</button>}
       </div>
 
-      {tab === 'dashboard' && <Dashboard />}
+      {tab === 'dashboard' && <Dashboard user={user} />}
       {tab === 'logs' && <Logs />}
+      {tab === 'users' && user.is_admin === 1 && <Users currentUser={user} />}
+      {tab === 'backups' && user.is_admin === 1 && <Backups />}
 
       {toast && <Toast message={toast.msg} type={toast.type} />}
     </div>

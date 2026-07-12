@@ -46,6 +46,7 @@ export default function Register({ onSuccess, onSwitchToLogin }) {
               placeholder="如：张三"
               autoFocus
               maxLength={32}
+              autoComplete="name"
             />
           </div>
           <div className="auth-field">
@@ -56,6 +57,7 @@ export default function Register({ onSuccess, onSwitchToLogin }) {
               onChange={e => setPhone(e.target.value)}
               placeholder="11 位手机号"
               maxLength={11}
+              autoComplete="username"
             />
           </div>
           <div className="auth-field">
@@ -65,6 +67,7 @@ export default function Register({ onSuccess, onSwitchToLogin }) {
               value={password}
               onChange={e => setPassword(e.target.value)}
               placeholder="至少 6 位"
+              autoComplete="new-password"
             />
           </div>
           <div className="auth-field">
@@ -74,6 +77,7 @@ export default function Register({ onSuccess, onSwitchToLogin }) {
               value={confirm}
               onChange={e => setConfirm(e.target.value)}
               placeholder="再次输入"
+              autoComplete="new-password"
             />
           </div>
 
@@ -85,7 +89,7 @@ export default function Register({ onSuccess, onSwitchToLogin }) {
 
           <div className="auth-footer">
             已有账号？
-            <a onClick={onSwitchToLogin}>立即登录</a>
+            <button type="button" className="link-button" onClick={onSwitchToLogin}>立即登录</button>
           </div>
         </form>
       </div>

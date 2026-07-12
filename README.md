@@ -9,6 +9,11 @@
 - 👤 **用户体系**：注册、登录、JWT 鉴权、操作人=真实姓名
 - 📋 **审计日志**：所有写操作自动记录「谁 + 何时 + 做什么」
 - 🔍 **多维筛选**：型号、状态、持有人、关键词搜索
+- 🧾 **完整台账**：归属部门、资产负责人、借用人、用途、预计归还和维修描述
+- ♻️ **安全归档**：删除改为可恢复归档，历史操作日志永久保留
+- ✅ **盘点与导出**：逐台盘点，设备及日志 CSV 导出
+- 👥 **管理员控制台**：创建、停用、授权、重置内部用户
+- 💾 **备份恢复**：SQLite/PostgreSQL 可移植快照、下载和校验恢复
 
 ---
 
@@ -304,14 +309,18 @@ docker compose up -d
 | POST | `/api/auth/register` | 注册 | ❌ |
 | POST | `/api/auth/login` | 登录 | ❌ |
 | GET | `/api/auth/me` | 当前用户 | ✅ |
-| GET | `/api/robots` | 设备列表（支持 model/status/holder/keyword） | ❌ |
+| GET | `/api/robots` | 设备列表（支持筛选及管理员查看归档） | ✅ |
 | POST | `/api/robots` | 新增设备 | ✅ |
-| GET | `/api/robots/{id}` | 设备详情 | ❌ |
+| GET/PUT | `/api/robots/{id}` | 设备详情/编辑资料 | ✅ |
 | POST | `/api/robots/{id}/status` | 修改状态 | ✅ |
-| DELETE | `/api/robots/{id}` | 删除设备 | ✅ |
-| GET | `/api/stats` | 统计 | ❌ |
-| GET | `/api/logs` | 日志 | ❌ |
-| GET | `/api/users` | 用户列表 | ✅ |
+| DELETE | `/api/robots/{id}` | 归档设备（管理员） | ✅ |
+| POST | `/api/robots/{id}/restore` | 恢复归档设备（管理员） | ✅ |
+| POST | `/api/robots/{id}/inventory` | 记录盘点 | ✅ |
+| GET | `/api/stats` | 统计 | ✅ |
+| GET | `/api/logs` | 日志筛选与分页 | ✅ |
+| GET/POST/PUT | `/api/users` | 用户管理（管理员） | ✅ |
+| GET | `/api/export/*.csv` | 设备和日志导出 | ✅ |
+| GET/POST | `/api/backup/*` | 备份、下载及恢复（管理员） | ✅ |
 
 API 在线文档：`https://your-domain/docs`（Swagger UI）
 
@@ -320,6 +329,7 @@ API 在线文档：`https://your-domain/docs`（Swagger UI）
 ## ⚖️ 注意事项
 
 - **数据备份**：SQLite 文件务必定期备份（参考上方命令）
+- **Render 备份**：Render 文件系统可能随重新部署清空；管理员创建备份后应下载到部门受控存储。使用托管 PostgreSQL 时，系统生成可移植 JSON 快照。
 - **HTTPS 证书**：Caddy 自动签发 + 续期，但需要域名 DNS 正确解析且 80/443 端口可访问
 - **JWT 密钥**：**.env 中的 `JWT_SECRET` 一旦更换，旧登录全部失效**
 - **并发规模**：SQLite 适合 < 50 并发写。若超过请改 `DATABASE_URL` 为 MySQL/PostgreSQL

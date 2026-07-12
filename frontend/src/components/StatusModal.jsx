@@ -6,6 +6,10 @@ export default function StatusModal({ robot, onClose, onSubmit }) {
   const [status, setStatus] = useState(robot.status || '在库')
   const [location, setLocation] = useState(robot.location || '')
   const [note, setNote] = useState('')
+  const [borrower, setBorrower] = useState(robot.borrower || '')
+  const [purpose, setPurpose] = useState(robot.purpose || '')
+  const [expectedReturnAt, setExpectedReturnAt] = useState(robot.expected_return_at ? robot.expected_return_at.slice(0, 16) : '')
+  const [repairDescription, setRepairDescription] = useState(robot.repair_description || '')
 
   // 用户自定义的状态（持久化）
   const [customStatuses, setCustomStatuses] = useState(() => {
@@ -50,7 +54,9 @@ export default function StatusModal({ robot, onClose, onSubmit }) {
       alert('请填写去向信息（持有人/地点/故障原因）')
       return
     }
-    onSubmit({ status, location: location.trim(), note: note.trim() })
+    if (status === '借出' && !borrower.trim()) { alert('请填写当前借用人'); return }
+    onSubmit({ status, location: location.trim(), note: note.trim(), borrower: borrower.trim(), purpose: purpose.trim(),
+      expected_return_at: expectedReturnAt || null, repair_description: repairDescription.trim() })
   }
 
   return (
@@ -102,6 +108,13 @@ export default function StatusModal({ robot, onClose, onSubmit }) {
             )}
           </div>
         </div>
+
+        {status === '借出' && <>
+          <div className="field"><label>当前借用人 *</label><input value={borrower} onChange={e => setBorrower(e.target.value)} placeholder="实际使用设备的人" /></div>
+          <div className="field"><label>借用用途</label><input value={purpose} onChange={e => setPurpose(e.target.value)} placeholder="测试、演示、项目名称等" /></div>
+          <div className="field"><label>预计归还时间</label><input type="datetime-local" value={expectedReturnAt} onChange={e => setExpectedReturnAt(e.target.value)} /></div>
+        </>}
+        {status === '维修中' && <div className="field"><label>维修故障描述</label><input value={repairDescription} onChange={e => setRepairDescription(e.target.value)} placeholder="故障现象、维修单位等" /></div>}
 
         <div className="field">
           <label>2. 填写去向 {status !== '在库' && <span style={{ color: '#ff4d4f' }}>*</span>}</label>

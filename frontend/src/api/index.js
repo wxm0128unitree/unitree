@@ -58,6 +58,16 @@ async function request(path, options = {}) {
   return res.json()
 }
 
+async function download(path, filename) {
+  const token = getToken()
+  const res = await fetch(BASE + path, { headers: token ? { Authorization: 'Bearer ' + token } : {} })
+  if (res.status === 401) { notify401(); throw new Error('未登录') }
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || `HTTP ${res.status}`)
+  const url = URL.createObjectURL(await res.blob())
+  const a = document.createElement('a'); a.href = url; a.download = filename; a.click()
+  URL.revokeObjectURL(url)
+}
+
 export const api = {
   // ===== 认证 =====
   login: (phone, password) =>
@@ -78,7 +88,10 @@ export const api = {
   createRobot: (data) => request('/robots', { method: 'POST', body: JSON.stringify(data) }),
   updateStatus: (id, data) =>
     request(`/robots/${id}/status`, { method: 'POST', body: JSON.stringify(data) }),
+  editRobot: (id, data) => request(`/robots/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  inventoryRobot: (id, data) => request(`/robots/${id}/inventory`, { method: 'POST', body: JSON.stringify(data) }),
   deleteRobot: (id) => request(`/robots/${id}`, { method: 'DELETE' }),
+  restoreRobot: (id) => request(`/robots/${id}/restore`, { method: 'POST' }),
   getStats: () => request('/stats'),
   listLogs: (params = {}) => {
     const q = new URLSearchParams()
@@ -89,4 +102,12 @@ export const api = {
 
   // ===== 用户管理 =====
   listUsers: () => request('/users'),
+  createUser: (data) => request('/users', { method: 'POST', body: JSON.stringify(data) }),
+  updateUser: (id, data) => request(`/users/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  listBackups: () => request('/backup/list'),
+  runBackup: () => request('/backup/run', { method: 'POST' }),
+  restoreBackup: (kind, name) => request(`/backup/restore?${new URLSearchParams({ kind, name, confirm: 'RESTORE' })}`, { method: 'POST' }),
+  downloadBackup: (kind, name) => download(`/backup/download?${new URLSearchParams({ kind, name })}`, name),
+  exportRobots: () => download('/export/robots.csv', '设备清单.csv'),
+  exportLogs: () => download('/export/logs.csv', '操作日志.csv'),
 }
