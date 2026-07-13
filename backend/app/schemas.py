@@ -2,9 +2,17 @@
 Pydantic 数据校验模型（API 请求/响应）
 """
 import re
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, field_serializer
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _as_utc(value: Optional[datetime]):
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc).isoformat()
 
 
 # ========== 设备相关 ==========
@@ -65,6 +73,10 @@ class RobotOut(RobotBase):
     last_inventory_location: str = ""
     inventory_note: str = ""
 
+    @field_serializer("created_at", "updated_at", "borrowed_at", "archived_at", "last_inventory_at")
+    def serialize_utc_times(self, value: Optional[datetime]):
+        return _as_utc(value)
+
     class Config:
         from_attributes = True
 
@@ -89,6 +101,10 @@ class OperationLogOut(BaseModel):
     note: Optional[str]
     created_at: datetime
     asset_code: Optional[str] = None
+
+    @field_serializer("created_at")
+    def serialize_created_at(self, value: datetime):
+        return _as_utc(value)
 
     class Config:
         from_attributes = True
@@ -136,6 +152,10 @@ class UserOut(BaseModel):
     is_active: int = 1
     last_login_at: Optional[datetime] = None
     created_at: datetime
+
+    @field_serializer("created_at", "last_login_at")
+    def serialize_utc_times(self, value: Optional[datetime]):
+        return _as_utc(value)
 
     class Config:
         from_attributes = True

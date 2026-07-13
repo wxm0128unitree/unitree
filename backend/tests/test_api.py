@@ -22,6 +22,14 @@ def auth(client):
     return {"Authorization": f"Bearer {response.json()['access_token']}"}
 
 
+def test_api_marks_generated_timestamps_as_utc():
+    with TestClient(app) as client:
+        headers = auth(client)
+        users = client.get("/api/users", headers=headers).json()
+        assert users[0]["created_at"].endswith("+00:00")
+        assert users[0]["last_login_at"].endswith("+00:00")
+
+
 def test_protected_reads_and_full_robot_lifecycle():
     with TestClient(app) as client:
         for path in ("/api/robots", "/api/stats", "/api/logs"):

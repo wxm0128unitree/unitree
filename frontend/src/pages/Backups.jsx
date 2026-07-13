@@ -5,7 +5,7 @@ export default function Backups() {
   const [groups, setGroups] = useState({ daily: [], weekly: [], manual: [] })
   const [message, setMessage] = useState('')
   const load = () => api.listBackups().then(setGroups).catch(e => setMessage(e.message))
-  useEffect(load, [])
+  useEffect(() => { load() }, [])
   const run = async () => { try { await api.runBackup(); setMessage('备份已创建'); load() } catch (e) { setMessage(e.message) } }
   const restore = async (kind, name) => {
     if (!confirm(`确认从 ${name} 恢复数据库？系统会先自动创建安全备份。`)) return

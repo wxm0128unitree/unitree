@@ -6,8 +6,13 @@
 """
 from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey
 from sqlalchemy.orm import relationship
-from datetime import datetime
+from datetime import datetime, timezone
 from app.database import Base
+
+
+def utc_now():
+    """数据库统一保存无时区标记的 UTC，API 输出时再补 UTC 标记。"""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 class Robot(Base):
@@ -34,8 +39,8 @@ class Robot(Base):
     last_inventory_by = Column(String(64), default="")
     last_inventory_location = Column(String(128), default="")
     inventory_note = Column(Text, default="")
-    created_at = Column(DateTime, default=datetime.now)
-    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+    created_at = Column(DateTime, default=utc_now)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
 
     logs = relationship("OperationLog", back_populates="robot", cascade="all, delete-orphan")
 
@@ -53,7 +58,7 @@ class OperationLog(Base):
     before_location = Column(String(128))
     after_location = Column(String(128))
     note = Column(Text, default="")
-    created_at = Column(DateTime, default=datetime.now, index=True)
+    created_at = Column(DateTime, default=utc_now, index=True)
 
     robot = relationship("Robot", back_populates="logs")
 
@@ -69,4 +74,4 @@ class User(Base):
     is_admin = Column(Integer, default=0)  # 1=管理员, 0=普通用户
     is_active = Column(Integer, nullable=False, default=1)  # 1=启用, 0=停用
     last_login_at = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=datetime.now)
+    created_at = Column(DateTime, default=utc_now)

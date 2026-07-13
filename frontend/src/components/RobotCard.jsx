@@ -1,3 +1,5 @@
+import { formatShanghaiDate } from '../utils/datetime'
+
 export default function RobotCard({ robot, onClick, onDelete, onEdit, onInventory, onRestore }) {
   const statusIcon = {
     '在库': '🟢',
@@ -23,7 +25,7 @@ export default function RobotCard({ robot, onClick, onDelete, onEdit, onInventor
         {robot.location || <span style={{ color: '#bbb' }}>（无去向信息）</span>}
       </div>
       {robot.borrower && <div className="meta-line">借用人：{robot.borrower}{robot.expected_return_at ? ` · 预计 ${new Date(robot.expected_return_at).toLocaleDateString('zh-CN')} 归还` : ''}</div>}
-      {robot.last_inventory_at && <div className="meta-line">最近盘点：{new Date(robot.last_inventory_at).toLocaleDateString('zh-CN')} · {robot.last_inventory_by}</div>}
+      {robot.last_inventory_at && <div className="meta-line">最近盘点：{formatShanghaiDate(robot.last_inventory_at)} · {robot.last_inventory_by}</div>}
       <div className="actions" onClick={e => e.stopPropagation()}>
         {robot.is_archived ? <button onClick={onRestore}>恢复</button> : <>
           <button onClick={onClick}>状态</button><button className="secondary" onClick={onEdit}>编辑</button><button className="secondary" onClick={onInventory}>盘点</button><button className="danger" onClick={onDelete}>归档</button>

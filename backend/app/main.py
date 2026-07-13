@@ -26,7 +26,7 @@ from app.auth import (
 app = FastAPI(
     title="\u5b87\u6811\u673a\u5668\u4eba\u8bbe\u5907\u7ba1\u7406\u7cfb\u7edf",
     description="\u53bb\u6d41\u7a0b\u5316\u3001\u4ee5\u72b6\u6001\u4e3a\u4e2d\u5fc3\u7684\u8bbe\u5907\u51fa\u5165\u5e93\u7ba1\u7406",
-    version="2.2.0",
+    version="2.2.1",
 )
 
 # CORS：默认允许所有（部署后可设 CORS_ORIGINS 收紧）
@@ -170,7 +170,7 @@ def api_login(payload: schemas.UserLogin, db: Session = Depends(get_db)):
         raise HTTPException(status_code=401, detail="\u624b\u673a\u53f7\u6216\u5bc6\u7801\u4e0d\u6b63\u786e")
     if user.is_active != 1:
         raise HTTPException(status_code=403, detail="账号已停用，请联系管理员")
-    user.last_login_at = datetime.now()
+    user.last_login_at = models.utc_now()
     db.commit()
     db.refresh(user)
     token = create_access_token(user)

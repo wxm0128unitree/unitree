@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
 import Toast from '../components/Toast'
+import { formatShanghaiDateTime } from '../utils/datetime'
 
 export default function Logs() {
   const [data, setData] = useState({ items: [], total: 0, page: 1, page_size: 50 })
@@ -10,7 +11,7 @@ export default function Logs() {
   const showToast = msg => { setToast({ msg, type: 'error' }); setTimeout(() => setToast(null), 2500) }
   const load = async (page = 1) => { setLoading(true); try { setData(await api.listLogs({ ...filters, date_to: filters.date_to ? filters.date_to + 'T23:59:59' : '', page, page_size: 50 })) } catch (e) { showToast('加载失败: ' + e.message) } finally { setLoading(false) } }
   useEffect(() => { load(1) }, [])
-  const fmt = s => s ? new Date(s).toLocaleString('zh-CN') : '-'
+  const fmt = formatShanghaiDateTime
   const pages = Math.max(1, Math.ceil(data.total / data.page_size))
   return <div className="logs-page">
     <div className="toolbar log-filters">

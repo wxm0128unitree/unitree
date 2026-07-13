@@ -98,7 +98,7 @@ def update_robot_status(
     robot.expected_return_at = payload.expected_return_at if payload.status == "借出" else None
     robot.repair_description = payload.repair_description.strip() if payload.status == "维修中" else ""
     if payload.status == "借出" and before["status"] != "借出":
-        robot.borrowed_at = datetime.now()
+        robot.borrowed_at = models.utc_now()
     elif payload.status != "借出":
         robot.borrowed_at = None
 
@@ -178,7 +178,7 @@ def delete_robot(db: Session, robot_id: int, operator: str = "admin"):
     if not robot:
         raise HTTPException(status_code=404, detail="设备不存在")
     robot.is_archived = 1
-    robot.archived_at = datetime.now()
+    robot.archived_at = models.utc_now()
     db.add(models.OperationLog(robot_id=robot.id, operator=operator, action="归档", before_status=robot.status,
         after_status=robot.status, before_location=robot.location, after_location=robot.location, note="设备已归档"))
     db.commit()
@@ -224,7 +224,7 @@ def inventory_robot(db: Session, robot_id: int, payload: schemas.InventoryUpdate
     robot = db.query(models.Robot).filter(models.Robot.id == robot_id, models.Robot.is_archived == 0).first()
     if not robot:
         raise HTTPException(status_code=404, detail="设备不存在")
-    robot.last_inventory_at = datetime.now()
+    robot.last_inventory_at = models.utc_now()
     robot.last_inventory_by = operator
     robot.last_inventory_location = payload.location.strip()
     robot.inventory_note = payload.note.strip()
