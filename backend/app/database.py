@@ -95,6 +95,9 @@ def _migrate_existing_database():
     """为没有 Alembic 的旧部署补齐新增列；每次启动可安全重复执行。"""
     migrations = {
         "robots": {
+            "device_branch": "VARCHAR(32) NOT NULL DEFAULT 'standard_robot'",
+            "platform_type": "VARCHAR(32) DEFAULT ''",
+            "lifecycle_status": "VARCHAR(16) NOT NULL DEFAULT 'active'",
             "owner_department": "VARCHAR(64) DEFAULT ''",
             "owner_name": "VARCHAR(32) DEFAULT ''",
             "borrower": "VARCHAR(32) DEFAULT ''",
@@ -104,6 +107,10 @@ def _migrate_existing_database():
             "repair_description": "TEXT DEFAULT ''",
             "is_archived": "INTEGER NOT NULL DEFAULT 0",
             "archived_at": "TIMESTAMP NULL",
+            "migrated_at": "TIMESTAMP NULL",
+            "destination_department": "VARCHAR(64) DEFAULT ''",
+            "destination_holder": "VARCHAR(32) DEFAULT ''",
+            "migration_reason": "TEXT DEFAULT ''",
             "last_inventory_at": "TIMESTAMP NULL",
             "last_inventory_by": "VARCHAR(64) DEFAULT ''",
             "last_inventory_location": "VARCHAR(128) DEFAULT ''",

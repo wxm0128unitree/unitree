@@ -148,7 +148,8 @@ def _run_portable_backup(dst_file: Path) -> None:
     from app.database import engine
     from app import models
     dst_file.parent.mkdir(parents=True, exist_ok=True)
-    tables = [models.User.__table__, models.Robot.__table__, models.OperationLog.__table__]
+    tables = [models.User.__table__, models.Robot.__table__, models.OperationLog.__table__,
+              models.InventoryItem.__table__, models.InventoryTransaction.__table__]
     payload = {"format": "unitree-backup", "version": 1, "created_at": datetime.now().isoformat(), "tables": {}}
     with engine.connect() as conn:
         for table in tables:
@@ -291,10 +292,12 @@ def _restore_portable_backup(source: Path) -> None:
     payload = json.loads(source.read_text(encoding="utf-8"))
     if payload.get("format") != "unitree-backup" or payload.get("version") != 1:
         raise ValueError("备份格式或版本无效")
-    expected = {"users", "robots", "operation_logs"}
-    if set(payload.get("tables", {})) != expected:
+    required = {"users", "robots", "operation_logs"}
+    if not required.issubset(set(payload.get("tables", {}))):
         raise ValueError("备份缺少必要数据表")
-    tables = {t.name: t for t in [models.User.__table__, models.Robot.__table__, models.OperationLog.__table__]}
+    all_tables = [models.User.__table__, models.Robot.__table__, models.OperationLog.__table__,
+                  models.InventoryItem.__table__, models.InventoryTransaction.__table__]
+    tables = {t.name: t for t in all_tables}
     converted = {}
     for name, rows in payload["tables"].items():
         table = tables[name]
@@ -310,14 +313,16 @@ def _restore_portable_backup(source: Path) -> None:
                 clean[key] = value
             converted[name].append(clean)
     with engine.begin() as conn:
+        conn.execute(tables["inventory_transactions"].delete())
+        conn.execute(tables["inventory_items"].delete())
         conn.execute(tables["operation_logs"].delete())
         conn.execute(tables["robots"].delete())
         conn.execute(tables["users"].delete())
-        for name in ("users", "robots", "operation_logs"):
-            if converted[name]:
+        for name in ("users", "robots", "operation_logs", "inventory_items", "inventory_transactions"):
+            if converted.get(name):
                 conn.execute(tables[name].insert(), converted[name])
         if engine.dialect.name == "postgresql":
-            for name in ("users", "robots", "operation_logs"):
+            for name in ("users", "robots", "operation_logs", "inventory_items", "inventory_transactions"):
                 conn.exec_driver_sql(
                     f"SELECT setval(pg_get_serial_sequence('{name}', 'id'), COALESCE((SELECT MAX(id) FROM {name}), 1), true)"
                 )

@@ -7,15 +7,20 @@ import FilterSelect from '../components/FilterSelect'
 import Toast from '../components/Toast'
 import EditRobotModal from '../components/EditRobotModal'
 import InventoryModal from '../components/InventoryModal'
+import MigrationModal from '../components/MigrationModal'
+import Inventory from './Inventory'
 
 export default function Dashboard({ user }) {
+  const [view, setView] = useState('overview')
   const [robots, setRobots] = useState([])
   const [stats, setStats] = useState({ total: 0, in_stock: 0, borrowed: 0, in_repair: 0 })
+  const [inventoryStats, setInventoryStats] = useState({ total: 0, available: 0, loaned: 0, categories: {} })
   const [loading, setLoading] = useState(true)
   const [filters, setFilters] = useState({ model: '全部', status: '全部', holder: '全部', keyword: '' })
   const [activeRobot, setActiveRobot] = useState(null)
   const [editingRobot, setEditingRobot] = useState(null)
   const [inventoryRobot, setInventoryRobot] = useState(null)
+  const [migratingRobot, setMigratingRobot] = useState(null)
   const [includeArchived, setIncludeArchived] = useState(false)
   const [showAdd, setShowAdd] = useState(false)
   const [toast, setToast] = useState(null)
@@ -28,12 +33,14 @@ export default function Dashboard({ user }) {
   const load = async () => {
     setLoading(true)
     try {
-      const [list, st] = await Promise.all([
+      const [list, st, inv] = await Promise.all([
         api.listRobots({ ...filters, include_archived: includeArchived ? 'true' : '' }),
         api.getStats(),
+        api.getInventoryStats(),
       ])
       setRobots(list)
       setStats(st)
+      setInventoryStats(inv)
     } catch (e) {
       showToast('加载失败: ' + e.message, 'error')
     } finally {
@@ -90,6 +97,13 @@ export default function Dashboard({ user }) {
     try { await api.restoreRobot(robot.id); showToast('设备已恢复'); load() }
     catch (e) { showToast(e.message, 'error') }
   }
+  const handleMigrate = async payload => {
+    try { await api.migrateRobot(migratingRobot.id, payload); setMigratingRobot(null); showToast('设备已迁出本部门'); load() }
+    catch (e) { showToast(e.message, 'error') }
+  }
+  const handleUndoMigration = async robot => {
+    try { await api.undoRobotMigration(robot.id); showToast('迁移已撤销'); load() } catch(e) { showToast(e.message,'error') }
+  }
 
   // 从已有数据中动态提取所有出现过的型号 / 状态 / 持有人
   const allModels = Array.from(new Set(robots.map(r => r.model).filter(Boolean)))
@@ -98,6 +112,21 @@ export default function Dashboard({ user }) {
 
   return (
     <div>
+      <div className="dashboard-switch" role="tablist">
+        <button className={view==='overview'?'active':''} onClick={()=>setView('overview')}>总览</button>
+        <button className={view==='robots'?'active':''} onClick={()=>setView('robots')}>机器人与实训台</button>
+        <button className={view==='inventory'?'active':''} onClick={()=>setView('inventory')}>配件库存</button>
+      </div>
+      {view === 'overview' && <div className="overview-page">
+        <div className="hero-summary"><div><span className="eyebrow">DEPARTMENT ASSETS</span><h2>部门资产总览</h2><p>逐台设备与数量库存，状态清晰、流转可追溯。</p></div><div className="hero-total"><b>{stats.total + inventoryStats.total}</b><span>当前资产总量</span></div></div>
+        <div className="section-heading compact"><div><h2>机器人设备</h2><p>成品机器人按型号统计，实训台按形态统计。</p></div><button className="text-btn" onClick={()=>setView('robots')}>查看全部 →</button></div>
+        <div className="asset-stat-grid">{['G1','R1','Go2','A2'].map(model=>{const s=stats.by_model?.[model]||{total:0,in_stock:0,borrowed:0,in_repair:0};return <button className="asset-stat" key={model} onClick={()=>{setFilters(f=>({...f,model}));setView('robots')}}><span>{model}</span><b>{s.total}</b><small>在库 {s.in_stock} · 借出 {s.borrowed} · 维修 {s.in_repair}</small></button>})}
+          <button className="asset-stat training" onClick={()=>setView('robots')}><span>人形实训台</span><b>{stats.training_platforms?.humanoid||0}</b><small>逐台管理</small></button><button className="asset-stat training" onClick={()=>setView('robots')}><span>四足实训台</span><b>{stats.training_platforms?.quadruped||0}</b><small>逐台管理</small></button></div>
+        <div className="section-heading compact"><div><h2>配件库存</h2><p>大数字为部门当前总量。</p></div><button className="text-btn" onClick={()=>setView('inventory')}>管理库存 →</button></div>
+        <div className="category-stat-grid">{['Pico','夹爪','三指灵巧手','电池','遥控器','拓展坞'].map((name,i)=>{const icons=['🥽','🤏','🖐️','🔋','🎮','🔌'];const s=inventoryStats.categories?.[name]||{total:0,available:0,loaned:0};return <button key={name} className="category-stat" onClick={()=>setView('inventory')}><span className="asset-icon">{icons[i]}</span><span>{name}</span><b>{s.total}</b><small>库存 {s.available} · 借出 {s.loaned}</small></button>})}</div>
+      </div>}
+      {view === 'inventory' && <Inventory onStats={setInventoryStats} />}
+      {view === 'robots' && <>
       {/* 统计卡片 */}
       <div className="stats">
         <div className="stat-card total">
@@ -153,7 +182,7 @@ export default function Dashboard({ user }) {
         <button onClick={handleSearch}>搜索</button>
         <button className="ghost" onClick={() => setShowAdd(true)}>+ 新增设备</button>
         <button className="ghost" onClick={() => api.exportRobots().catch(e => showToast(e.message, 'error'))}>导出 CSV</button>
-        {user.is_admin === 1 && <label className="archive-toggle"><input type="checkbox" checked={includeArchived} onChange={e => setIncludeArchived(e.target.checked)} /> 显示归档</label>}
+        {user.is_admin === 1 && <label className="archive-toggle"><input type="checkbox" checked={includeArchived} onChange={e => setIncludeArchived(e.target.checked)} /> 显示迁移/归档</label>}
       </div>
 
       {/* 设备列表 */}
@@ -176,6 +205,8 @@ export default function Dashboard({ user }) {
               onEdit={() => setEditingRobot(r)}
               onInventory={() => setInventoryRobot(r)}
               onRestore={() => handleRestore(r)}
+              onMigrate={() => setMigratingRobot(r)}
+              onUndoMigration={() => handleUndoMigration(r)}
             />
           ))}
         </div>
@@ -198,6 +229,8 @@ export default function Dashboard({ user }) {
       )}
       {editingRobot && <EditRobotModal robot={editingRobot} onClose={() => setEditingRobot(null)} onSubmit={handleEdit} />}
       {inventoryRobot && <InventoryModal robot={inventoryRobot} onClose={() => setInventoryRobot(null)} onSubmit={handleInventory} />}
+      {migratingRobot && <MigrationModal robot={migratingRobot} onClose={() => setMigratingRobot(null)} onSubmit={handleMigrate} />}
+      </>}
 
       {toast && <Toast message={toast.msg} type={toast.type} />}
     </div>

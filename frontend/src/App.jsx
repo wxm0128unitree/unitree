@@ -73,7 +73,7 @@ export default function App() {
     <div className="app">
       <header className="header">
         <div className="header-left">
-          <h1>🤖 宇树机器人出入库管理</h1>
+          <h1>🤖 部门设备与配件库存管理</h1>
         </div>
         <div className="header-user">
           <div className="user-info">

@@ -1,6 +1,6 @@
 import { formatShanghaiDate } from '../utils/datetime'
 
-export default function RobotCard({ robot, onClick, onDelete, onEdit, onInventory, onRestore }) {
+export default function RobotCard({ robot, onClick, onDelete, onEdit, onInventory, onRestore, onMigrate, onUndoMigration }) {
   const statusIcon = {
     '在库': '🟢',
     '借出': '🔵',
@@ -12,7 +12,7 @@ export default function RobotCard({ robot, onClick, onDelete, onEdit, onInventor
     <div className="robot-card" onClick={onClick}>
       <div className="row1">
         <span className="code">{robot.asset_code}</span>
-        <span className={modelClass}>{robot.model}</span>
+        <span className={modelClass}>{robot.device_branch === 'training_platform' ? (robot.platform_type === 'humanoid' ? '人形实训台' : '四足实训台') : robot.model}</span>
       </div>
       <div className="holder">
         <span className="holder-icon">👤</span>
@@ -27,8 +27,8 @@ export default function RobotCard({ robot, onClick, onDelete, onEdit, onInventor
       {robot.borrower && <div className="meta-line">借用人：{robot.borrower}{robot.expected_return_at ? ` · 预计 ${new Date(robot.expected_return_at).toLocaleDateString('zh-CN')} 归还` : ''}</div>}
       {robot.last_inventory_at && <div className="meta-line">最近盘点：{formatShanghaiDate(robot.last_inventory_at)} · {robot.last_inventory_by}</div>}
       <div className="actions" onClick={e => e.stopPropagation()}>
-        {robot.is_archived ? <button onClick={onRestore}>恢复</button> : <>
-          <button onClick={onClick}>状态</button><button className="secondary" onClick={onEdit}>编辑</button><button className="secondary" onClick={onInventory}>盘点</button><button className="danger" onClick={onDelete}>归档</button>
+        {robot.lifecycle_status === 'migrated' ? <button onClick={onUndoMigration}>撤销迁移</button> : robot.is_archived ? <button onClick={onRestore}>恢复</button> : <>
+          <button onClick={onClick}>状态</button><button className="secondary" onClick={onEdit}>编辑</button><button className="secondary" onClick={onInventory}>盘点</button><button className="danger" onClick={onMigrate}>迁移</button><button className="muted-action" onClick={onDelete}>归档</button>
         </>}
       </div>
     </div>

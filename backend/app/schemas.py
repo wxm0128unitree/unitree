@@ -21,6 +21,8 @@ def _as_utc(value: Optional[datetime]):
 class RobotBase(BaseModel):
     asset_code: str = Field(..., max_length=64, description="资产编号")
     model: str = Field(..., max_length=32, description="型号")
+    device_branch: str = Field(default="standard_robot", max_length=32)
+    platform_type: str = Field(default="", max_length=32)
     status: str = Field(default="在库", description="状态")
     location: str = Field(default="", max_length=128, description="去向/持有人/故障原因")
     holder: str = Field(default="", max_length=32, description="设备归属人（谁提单/名下）")
@@ -52,6 +54,8 @@ class RobotUpdate(BaseModel):
 class RobotEdit(BaseModel):
     asset_code: str = Field(..., min_length=1, max_length=64)
     model: str = Field(..., min_length=1, max_length=32)
+    device_branch: str = Field(default="standard_robot", max_length=32)
+    platform_type: str = Field(default="", max_length=32)
     owner_department: str = Field(default="", max_length=64)
     owner_name: str = Field(default="", max_length=32)
     location: str = Field(default="", max_length=128)
@@ -72,8 +76,13 @@ class RobotOut(RobotBase):
     last_inventory_by: str = ""
     last_inventory_location: str = ""
     inventory_note: str = ""
+    lifecycle_status: str = "active"
+    migrated_at: Optional[datetime] = None
+    destination_department: str = ""
+    destination_holder: str = ""
+    migration_reason: str = ""
 
-    @field_serializer("created_at", "updated_at", "borrowed_at", "archived_at", "last_inventory_at")
+    @field_serializer("created_at", "updated_at", "borrowed_at", "archived_at", "last_inventory_at", "migrated_at")
     def serialize_utc_times(self, value: Optional[datetime]):
         return _as_utc(value)
 
@@ -87,6 +96,80 @@ class RobotStats(BaseModel):
     in_stock: int
     borrowed: int
     in_repair: int
+    by_model: dict = {}
+    training_platforms: dict = {}
+
+
+class RobotMigration(BaseModel):
+    destination_department: str = Field(..., min_length=1, max_length=64)
+    destination_holder: str = Field(default="", max_length=32)
+    reason: str = Field(default="", max_length=1000)
+
+
+class InventoryItemCreate(BaseModel):
+    category: str = Field(..., min_length=1, max_length=32)
+    subtype: str = Field(default="", max_length=32)
+    model: str = Field(..., min_length=1, max_length=64)
+    unit: str = Field(default="个", max_length=16)
+    initial_quantity: int = Field(default=0, ge=0)
+    location: str = Field(default="", max_length=128)
+    owner_department: str = Field(default="", max_length=64)
+    owner_name: str = Field(default="", max_length=32)
+    remark: str = Field(default="", max_length=2000)
+
+
+class InventoryItemOut(BaseModel):
+    id: int
+    category: str
+    subtype: str
+    model: str
+    unit: str
+    total_quantity: int
+    available_quantity: int
+    loaned_quantity: int
+    location: str
+    owner_department: str
+    owner_name: str
+    remark: str
+    is_archived: int
+    created_at: datetime
+    updated_at: datetime
+
+    @field_serializer("created_at", "updated_at")
+    def serialize_utc_times(self, value: datetime): return _as_utc(value)
+    class Config: from_attributes = True
+
+
+class InventoryAction(BaseModel):
+    action: str
+    quantity: int = Field(..., gt=0)
+    borrower: str = Field(default="", max_length=32)
+    purpose: str = Field(default="", max_length=128)
+    destination_department: str = Field(default="", max_length=64)
+    destination_holder: str = Field(default="", max_length=32)
+    expected_return_at: Optional[datetime] = None
+    note: str = Field(default="", max_length=1000)
+
+
+class InventoryTransactionOut(BaseModel):
+    id: int
+    inventory_item_id: int
+    action: str
+    quantity: int
+    before_total: int
+    after_total: int
+    before_available: int
+    after_available: int
+    borrower: str
+    purpose: str
+    destination_department: str
+    destination_holder: str
+    operator: str
+    note: str
+    created_at: datetime
+    @field_serializer("created_at")
+    def serialize_created_at(self, value: datetime): return _as_utc(value)
+    class Config: from_attributes = True
 
 
 class OperationLogOut(BaseModel):

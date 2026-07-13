@@ -26,7 +26,7 @@ from app.auth import (
 app = FastAPI(
     title="\u5b87\u6811\u673a\u5668\u4eba\u8bbe\u5907\u7ba1\u7406\u7cfb\u7edf",
     description="\u53bb\u6d41\u7a0b\u5316\u3001\u4ee5\u72b6\u6001\u4e3a\u4e2d\u5fc3\u7684\u8bbe\u5907\u51fa\u5165\u5e93\u7ba1\u7406",
-    version="2.2.1",
+    version="3.0.0",
 )
 
 # CORS：默认允许所有（部署后可设 CORS_ORIGINS 收紧）
@@ -264,6 +264,18 @@ def api_restore_robot(
     return crud.restore_robot(db, robot_id, current_user.name)
 
 
+@app.post("/api/robots/{robot_id}/migrate", response_model=schemas.RobotOut, tags=["设备"])
+def api_migrate_robot(robot_id: int, payload: schemas.RobotMigration, db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_admin)):
+    return crud.migrate_robot(db, robot_id, payload, current_user.name)
+
+
+@app.post("/api/robots/{robot_id}/undo-migration", response_model=schemas.RobotOut, tags=["设备"])
+def api_undo_robot_migration(robot_id: int, db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_admin)):
+    return crud.undo_robot_migration(db, robot_id, current_user.name)
+
+
 @app.post("/api/robots/{robot_id}/inventory", response_model=schemas.RobotOut, tags=["设备"])
 def api_inventory_robot(
     robot_id: int, payload: schemas.InventoryUpdate, db: Session = Depends(get_db),
@@ -334,6 +346,37 @@ def api_export_logs(
     data = "\ufeff" + output.getvalue()
     return StreamingResponse(iter([data.encode("utf-8")]), media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": "attachment; filename=operation_logs.csv"})
+
+
+# ========== 数量库存 ============
+
+@app.get("/api/inventory/items", response_model=List[schemas.InventoryItemOut], tags=["数量库存"])
+def api_inventory_items(category: Optional[str] = Query(None), db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)):
+    return crud.list_inventory_items(db, category)
+
+
+@app.post("/api/inventory/items", response_model=schemas.InventoryItemOut, tags=["数量库存"])
+def api_create_inventory_item(payload: schemas.InventoryItemCreate, db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)):
+    return crud.create_inventory_item(db, payload, current_user.name)
+
+
+@app.post("/api/inventory/items/{item_id}/action", response_model=schemas.InventoryItemOut, tags=["数量库存"])
+def api_inventory_action(item_id: int, payload: schemas.InventoryAction, db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)):
+    return crud.inventory_action(db, item_id, payload, current_user.name)
+
+
+@app.get("/api/inventory/stats", tags=["数量库存"])
+def api_inventory_stats(db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    return crud.inventory_stats(db)
+
+
+@app.get("/api/inventory/transactions", response_model=List[schemas.InventoryTransactionOut], tags=["数量库存"])
+def api_inventory_transactions(limit: int = Query(200, ge=1, le=1000), db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)):
+    return db.query(models.InventoryTransaction).order_by(models.InventoryTransaction.created_at.desc()).limit(limit).all()
 
 
 # ========== 用户管理（管理员） ==========

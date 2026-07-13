@@ -6,6 +6,8 @@ const DEFAULT_STATUSES = ['在库', '借出', '维修中']
 export default function AddRobotModal({ onClose, onSubmit, knownModels = [] }) {
   const [assetCode, setAssetCode] = useState('')
   const [model, setModel] = useState(knownModels[0] || 'G1')
+  const [deviceBranch, setDeviceBranch] = useState('standard_robot')
+  const [platformType, setPlatformType] = useState('humanoid')
   const [ownerDepartment, setOwnerDepartment] = useState('')
   const [ownerName, setOwnerName] = useState('')
   const [status, setStatus] = useState('在库')
@@ -54,6 +56,8 @@ export default function AddRobotModal({ onClose, onSubmit, knownModels = [] }) {
     onSubmit({
       asset_code: assetCode.trim(),
       model,
+      device_branch: deviceBranch,
+      platform_type: deviceBranch === 'training_platform' ? platformType : '',
       holder: ownerName.trim(),
       owner_department: ownerDepartment.trim(),
       owner_name: ownerName.trim(),
@@ -66,6 +70,7 @@ export default function AddRobotModal({ onClose, onSubmit, knownModels = [] }) {
     <div className="modal-mask" onClick={onClose}>
       <div className="modal" onClick={e => e.stopPropagation()}>
         <h3>新增设备</h3>
+        <div className="field"><label>设备分支</label><div className="segmented"><button className={deviceBranch==='standard_robot'?'active':''} onClick={()=>setDeviceBranch('standard_robot')}>成品机器人</button><button className={deviceBranch==='training_platform'?'active':''} onClick={()=>setDeviceBranch('training_platform')}>实训台</button></div></div>
 
         <div className="field">
           <label>资产编号 *</label>
@@ -118,10 +123,10 @@ export default function AddRobotModal({ onClose, onSubmit, knownModels = [] }) {
             placeholder="如：研发部"
           />
         </div>
-        <div className="field">
+        {deviceBranch === 'standard_robot' ? <div className="field">
           <label>资产负责人</label>
           <input type="text" value={ownerName} onChange={e => setOwnerName(e.target.value)} placeholder="如：张三" />
-        </div>
+        </div> : <div className="field"><label>实训台类型</label><select value={platformType} onChange={e=>setPlatformType(e.target.value)} style={{width:'100%',padding:'10px 12px',border:'1px solid var(--border)',borderRadius:8}}><option value="humanoid">人形实训台</option><option value="quadruped">四足实训台</option></select></div>}
 
         <div className="field">
           <label>初始状态</label>

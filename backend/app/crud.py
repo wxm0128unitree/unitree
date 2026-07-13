@@ -25,7 +25,7 @@ def list_robots(
     """列出设备，支持筛选"""
     q = db.query(models.Robot)
     if not include_archived:
-        q = q.filter(models.Robot.is_archived == 0)
+        q = q.filter(models.Robot.is_archived == 0, models.Robot.lifecycle_status == "active")
     if model and model != "全部":
         q = q.filter(models.Robot.model == model)
     if status and status != "全部":
@@ -139,12 +139,25 @@ def _infer_action(before: str, after: str) -> str:
 
 def get_stats(db: Session) -> dict:
     """首页统计：总数量、各状态数量"""
-    active = models.Robot.is_archived == 0
+    active = (models.Robot.is_archived == 0) & (models.Robot.lifecycle_status == "active")
     total = db.query(models.Robot).filter(active).count()
     in_stock = db.query(models.Robot).filter(active, models.Robot.status == "在库").count()
     borrowed = db.query(models.Robot).filter(active, models.Robot.status == "借出").count()
     in_repair = db.query(models.Robot).filter(active, models.Robot.status == "维修中").count()
-    return {"total": total, "in_stock": in_stock, "borrowed": borrowed, "in_repair": in_repair}
+    rows = db.query(models.Robot).filter(active).all()
+    by_model = {}
+    training = {"humanoid": 0, "quadruped": 0}
+    for robot in rows:
+        if robot.device_branch == "training_platform":
+            training[robot.platform_type or "other"] = training.get(robot.platform_type or "other", 0) + 1
+        else:
+            entry = by_model.setdefault(robot.model, {"total": 0, "in_stock": 0, "borrowed": 0, "in_repair": 0})
+            entry["total"] += 1
+            if robot.status == "在库": entry["in_stock"] += 1
+            elif robot.status == "借出": entry["borrowed"] += 1
+            elif robot.status == "维修中": entry["in_repair"] += 1
+    return {"total": total, "in_stock": in_stock, "borrowed": borrowed, "in_repair": in_repair,
+            "by_model": by_model, "training_platforms": training}
 
 
 def list_logs(
@@ -206,7 +219,7 @@ def edit_robot(db: Session, robot_id: int, payload: schemas.RobotEdit, operator:
     if duplicate:
         raise HTTPException(status_code=400, detail=f"资产编号 {payload.asset_code} 已存在")
     changed = []
-    for field in ("asset_code", "model", "owner_department", "owner_name", "location", "remark"):
+    for field in ("asset_code", "model", "device_branch", "platform_type", "owner_department", "owner_name", "location", "remark"):
         value = getattr(payload, field).strip()
         if getattr(robot, field) != value:
             changed.append(field)
@@ -234,3 +247,87 @@ def inventory_robot(db: Session, robot_id: int, payload: schemas.InventoryUpdate
     db.commit()
     db.refresh(robot)
     return robot
+
+
+def migrate_robot(db: Session, robot_id: int, payload: schemas.RobotMigration, operator: str):
+    robot = db.query(models.Robot).filter(models.Robot.id == robot_id, models.Robot.lifecycle_status == "active").first()
+    if not robot: raise HTTPException(status_code=404, detail="设备不存在或已迁移")
+    robot.lifecycle_status = "migrated"
+    robot.migrated_at = models.utc_now()
+    robot.destination_department = payload.destination_department.strip()
+    robot.destination_holder = payload.destination_holder.strip()
+    robot.migration_reason = payload.reason.strip()
+    db.add(models.OperationLog(robot_id=robot.id, operator=operator, action="迁移",
+        before_status=robot.status, after_status="已迁移", before_location=robot.location,
+        after_location=robot.destination_department, note=payload.reason))
+    db.commit(); db.refresh(robot); return robot
+
+
+def undo_robot_migration(db: Session, robot_id: int, operator: str):
+    robot = db.query(models.Robot).filter(models.Robot.id == robot_id, models.Robot.lifecycle_status == "migrated").first()
+    if not robot: raise HTTPException(status_code=404, detail="迁移记录不存在")
+    robot.lifecycle_status = "active"; robot.migrated_at = None
+    robot.destination_department = ""; robot.destination_holder = ""; robot.migration_reason = ""
+    db.add(models.OperationLog(robot_id=robot.id, operator=operator, action="撤销迁移",
+        before_status="已迁移", after_status=robot.status, before_location="", after_location=robot.location, note="管理员撤销迁移"))
+    db.commit(); db.refresh(robot); return robot
+
+
+def create_inventory_item(db: Session, payload: schemas.InventoryItemCreate, operator: str):
+    duplicate = db.query(models.InventoryItem).filter(models.InventoryItem.category == payload.category,
+        models.InventoryItem.subtype == payload.subtype, models.InventoryItem.model == payload.model,
+        models.InventoryItem.is_archived == 0).first()
+    if duplicate: raise HTTPException(status_code=400, detail="相同分类、子类型和型号的库存项目已存在")
+    data = payload.model_dump(exclude={"initial_quantity"})
+    item = models.InventoryItem(**data, total_quantity=payload.initial_quantity, available_quantity=payload.initial_quantity)
+    db.add(item); db.flush()
+    if payload.initial_quantity:
+        db.add(models.InventoryTransaction(inventory_item_id=item.id, action="stock_in", quantity=payload.initial_quantity,
+            before_total=0, after_total=payload.initial_quantity, before_available=0, after_available=payload.initial_quantity,
+            operator=operator, note="初始库存"))
+    db.commit(); db.refresh(item); return item
+
+
+def list_inventory_items(db: Session, category: Optional[str] = None):
+    q = db.query(models.InventoryItem).filter(models.InventoryItem.is_archived == 0)
+    if category: q = q.filter(models.InventoryItem.category == category)
+    return q.order_by(models.InventoryItem.category, models.InventoryItem.model).all()
+
+
+def inventory_action(db: Session, item_id: int, payload: schemas.InventoryAction, operator: str):
+    item = db.query(models.InventoryItem).filter(models.InventoryItem.id == item_id, models.InventoryItem.is_archived == 0).with_for_update().first()
+    if not item: raise HTTPException(status_code=404, detail="库存项目不存在")
+    action, qty = payload.action, payload.quantity
+    before_total, before_available = item.total_quantity, item.available_quantity
+    if action == "stock_in": item.total_quantity += qty; item.available_quantity += qty
+    elif action == "borrow":
+        if qty > item.available_quantity: raise HTTPException(status_code=400, detail="出库数量超过当前库存")
+        item.available_quantity -= qty; item.loaned_quantity += qty
+    elif action == "return":
+        if qty > item.loaned_quantity: raise HTTPException(status_code=400, detail="归还数量超过当前借出数量")
+        item.available_quantity += qty; item.loaned_quantity -= qty
+    elif action == "migrate":
+        if not payload.destination_department.strip(): raise HTTPException(status_code=400, detail="迁移必须填写接收部门")
+        if qty > item.available_quantity: raise HTTPException(status_code=400, detail="迁移数量超过当前库存")
+        item.available_quantity -= qty; item.total_quantity -= qty
+    elif action == "scrap":
+        if qty > item.available_quantity: raise HTTPException(status_code=400, detail="报废数量超过当前库存")
+        item.available_quantity -= qty; item.total_quantity -= qty
+    else: raise HTTPException(status_code=400, detail="不支持的库存操作")
+    tx = models.InventoryTransaction(inventory_item_id=item.id, action=action, quantity=qty,
+        before_total=before_total, after_total=item.total_quantity, before_available=before_available,
+        after_available=item.available_quantity, borrower=payload.borrower.strip(), purpose=payload.purpose.strip(),
+        destination_department=payload.destination_department.strip(), destination_holder=payload.destination_holder.strip(),
+        expected_return_at=payload.expected_return_at, operator=operator, note=payload.note.strip())
+    db.add(tx); db.commit(); db.refresh(item); return item
+
+
+def inventory_stats(db: Session):
+    items = list_inventory_items(db)
+    categories = {}
+    for item in items:
+        key = item.subtype if item.category == "灵巧手" and item.subtype else item.category
+        row = categories.setdefault(key, {"total": 0, "available": 0, "loaned": 0})
+        row["total"] += item.total_quantity; row["available"] += item.available_quantity; row["loaned"] += item.loaned_quantity
+    return {"total": sum(x.total_quantity for x in items), "available": sum(x.available_quantity for x in items),
+            "loaned": sum(x.loaned_quantity for x in items), "categories": categories}

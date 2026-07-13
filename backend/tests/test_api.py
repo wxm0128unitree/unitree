@@ -112,3 +112,49 @@ def test_portable_backup_round_trip():
     with engine.connect() as conn:
         after = conn.execute(models.User.__table__.select()).fetchall()
     assert len(after) == len(before)
+
+
+def test_quantity_inventory_borrow_return_and_migration():
+    with TestClient(app) as client:
+        headers = auth(client)
+        created = client.post('/api/inventory/items', headers=headers, json={
+            'category': '电池', 'subtype': '', 'model': 'G1 电池', 'unit': '块',
+            'initial_quantity': 20, 'location': '电池柜'
+        })
+        assert created.status_code == 200, created.text
+        item_id = created.json()['id']
+        borrowed = client.post(f'/api/inventory/items/{item_id}/action', headers=headers, json={
+            'action': 'borrow', 'quantity': 3, 'borrower': '张三', 'purpose': '测试'
+        })
+        assert borrowed.json()['available_quantity'] == 17
+        assert borrowed.json()['loaned_quantity'] == 3
+        assert client.post(f'/api/inventory/items/{item_id}/action', headers=headers,
+            json={'action': 'borrow', 'quantity': 99}).status_code == 400
+        returned = client.post(f'/api/inventory/items/{item_id}/action', headers=headers,
+            json={'action': 'return', 'quantity': 2})
+        assert returned.json()['available_quantity'] == 19
+        migrated = client.post(f'/api/inventory/items/{item_id}/action', headers=headers, json={
+            'action': 'migrate', 'quantity': 5, 'destination_department': '算法部'
+        })
+        assert migrated.json()['total_quantity'] == 15
+        assert migrated.json()['available_quantity'] == 14
+
+
+def test_training_platform_stats_and_robot_migration():
+    with TestClient(app) as client:
+        headers = auth(client)
+        created = client.post('/api/robots', headers=headers, json={
+            'asset_code': 'PT-H-001', 'model': '实训台', 'device_branch': 'training_platform',
+            'platform_type': 'humanoid', 'status': '在库'
+        })
+        assert created.status_code == 200, created.text
+        robot_id = created.json()['id']
+        stats = client.get('/api/stats', headers=headers).json()
+        assert stats['training_platforms']['humanoid'] >= 1
+        migrated = client.post(f'/api/robots/{robot_id}/migrate', headers=headers,
+            json={'destination_department': '其他部门', 'destination_holder': '李四', 'reason': '项目迁移'})
+        assert migrated.status_code == 200
+        assert migrated.json()['lifecycle_status'] == 'migrated'
+        active_ids = [r['id'] for r in client.get('/api/robots', headers=headers).json()]
+        assert robot_id not in active_ids
+        assert client.post(f'/api/robots/{robot_id}/undo-migration', headers=headers).status_code == 200

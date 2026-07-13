@@ -92,7 +92,14 @@ export const api = {
   inventoryRobot: (id, data) => request(`/robots/${id}/inventory`, { method: 'POST', body: JSON.stringify(data) }),
   deleteRobot: (id) => request(`/robots/${id}`, { method: 'DELETE' }),
   restoreRobot: (id) => request(`/robots/${id}/restore`, { method: 'POST' }),
+  migrateRobot: (id, data) => request(`/robots/${id}/migrate`, { method: 'POST', body: JSON.stringify(data) }),
+  undoRobotMigration: (id) => request(`/robots/${id}/undo-migration`, { method: 'POST' }),
   getStats: () => request('/stats'),
+  listInventory: (params = {}) => request(`/inventory/items?${new URLSearchParams(params)}`),
+  createInventory: data => request('/inventory/items', { method: 'POST', body: JSON.stringify(data) }),
+  inventoryAction: (id, data) => request(`/inventory/items/${id}/action`, { method: 'POST', body: JSON.stringify(data) }),
+  getInventoryStats: () => request('/inventory/stats'),
+  listInventoryTransactions: () => request('/inventory/transactions'),
   listLogs: (params = {}) => {
     const q = new URLSearchParams()
     Object.entries(params).forEach(([k, v]) => { if (v) q.set(k, v) })
