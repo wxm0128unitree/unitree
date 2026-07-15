@@ -15,6 +15,7 @@ export default function Logs() {
   const fmt = formatShanghaiDateTime
   const pages = Math.max(1, Math.ceil(data.total / data.page_size))
   return <div className="logs-page">
+    <div className="page-heading"><div><span className="eyebrow">AUDIT TRAIL</span><h2>操作日志</h2><p>查看设备与配件库存的完整流转记录。</p></div><span className="page-count">共 {data.total} 条设备记录</span></div>
     <div className="toolbar log-filters">
       <input placeholder="操作人" value={filters.operator} onChange={e => setFilters(f => ({ ...f, operator: e.target.value }))} />
       <select value={filters.action} onChange={e => setFilters(f => ({ ...f, action: e.target.value }))}><option value="">全部操作</option>{['入库','借出','归还','送修','转移','资料编辑','盘点','归档','恢复'].map(x => <option key={x}>{x}</option>)}</select>

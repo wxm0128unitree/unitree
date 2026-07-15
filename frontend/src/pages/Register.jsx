@@ -32,7 +32,8 @@ export default function Register({ onSuccess, onSwitchToLogin }) {
   return (
     <div className="auth-page">
       <div className="auth-card">
-        <div className="auth-logo">🚀</div>
+        <div className="auth-logo"><span>UT</span></div>
+        <div className="auth-eyebrow">INTERNAL ASSET CENTER</div>
         <h2 className="auth-title">注册新账号</h2>
         <div className="auth-sub">填写真实姓名以便追溯操作记录</div>
 

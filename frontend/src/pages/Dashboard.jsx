@@ -111,6 +111,7 @@ export default function Dashboard({ user }) {
   const allHolders = Array.from(new Set(robots.map(r => r.holder).filter(Boolean))).sort()
   const primaryModels = ['G1', 'R1', 'Go2', 'A2']
   const extraModels = Object.keys(stats.by_model || {}).filter(model => !primaryModels.includes(model)).sort()
+  const modelTone = { G1: 'blue', R1: 'indigo', Go2: 'cyan', A2: 'slate' }
 
   return (
     <div>
@@ -120,10 +121,10 @@ export default function Dashboard({ user }) {
         <button className={view==='inventory'?'active':''} onClick={()=>setView('inventory')}>配件库存</button>
       </div>
       {view === 'overview' && <div className="overview-page">
-        <div className="hero-summary"><div><span className="eyebrow">DEPARTMENT ASSETS</span><h2>部门资产总览</h2><p>逐台设备与数量库存，状态清晰、流转可追溯。</p></div><div className="hero-total"><b>{stats.total + inventoryStats.total}</b><span>当前资产总量</span></div></div>
+        <div className="hero-summary"><div><span className="eyebrow">DEPARTMENT ASSETS</span><h2>部门资产一览</h2><p>机器人、实训台与配件库存集中管理，关键状态一目了然。</p></div><div className="hero-total"><span>当前资产总量</span><div><b>{stats.total + inventoryStats.total}</b><em>件</em></div><small>仅统计本部门在管资产</small></div></div>
         <div className="section-heading compact"><div><h2>机器人设备</h2><p>成品机器人按型号统计，实训台单独统计。</p></div><button className="text-btn" onClick={()=>setView('robots')}>查看全部 →</button></div>
-        <div className="asset-stat-grid">{[...primaryModels, ...extraModels].map(model=>{const s=stats.by_model?.[model]||{total:0,in_stock:0,borrowed:0,in_repair:0};return <button className="asset-stat" key={model} onClick={()=>{setFilters(f=>({...f,model}));setView('robots')}}><span>{model}</span><b>{s.total}</b><small>在库 {s.in_stock} · 借出 {s.borrowed} · 维修 {s.in_repair}</small></button>})}
-          <button className="asset-stat training" onClick={()=>setView('robots')}><span>实训台</span><b>{stats.training_platforms?.total||0}</b><small>在库 {stats.training_platforms?.in_stock||0} · 借出 {stats.training_platforms?.borrowed||0} · 维修 {stats.training_platforms?.in_repair||0}</small></button></div>
+        <div className="asset-stat-grid">{[...primaryModels, ...extraModels].map(model=>{const s=stats.by_model?.[model]||{total:0,in_stock:0,borrowed:0,in_repair:0};return <button className={`asset-stat tone-${modelTone[model]||'blue'}`} key={model} onClick={()=>{setFilters(f=>({...f,model}));setView('robots')}}><span className="asset-accent"/><span className="asset-stat-top"><span className="asset-model-badge">{model}</span><span className="asset-kind">成品机器人</span></span><span className="asset-stat-value"><b>{s.total}</b><em>台</em></span><span className="asset-status-line"><i className="dot stock"/>在库 {s.in_stock}<i className="dot loan"/>借出 {s.borrowed}<i className="dot repair"/>维修 {s.in_repair}</span></button>})}
+          <button className="asset-stat training tone-violet" onClick={()=>setView('robots')}><span className="asset-accent"/><span className="asset-stat-top"><span className="asset-model-badge">实训台</span><span className="asset-kind">独立设备</span></span><span className="asset-stat-value"><b>{stats.training_platforms?.total||0}</b><em>台</em></span><span className="asset-status-line"><i className="dot stock"/>在库 {stats.training_platforms?.in_stock||0}<i className="dot loan"/>借出 {stats.training_platforms?.borrowed||0}<i className="dot repair"/>维修 {stats.training_platforms?.in_repair||0}</span></button></div>
         <div className="section-heading compact"><div><h2>配件库存</h2><p>大数字为部门当前总量。</p></div><button className="text-btn" onClick={()=>setView('inventory')}>管理库存 →</button></div>
         <div className="category-stat-grid">{['Pico','夹爪','三指灵巧手','电池','遥控器','拓展坞'].map((name,i)=>{const icons=['🥽','🤏','🖐️','🔋','🎮','🔌'];const s=inventoryStats.categories?.[name]||{total:0,available:0,loaned:0};return <button key={name} className="category-stat" onClick={()=>setView('inventory')}><span className="asset-icon">{icons[i]}</span><span>{name}</span><b>{s.total}</b><small>库存 {s.available} · 借出 {s.loaned}</small></button>})}</div>
       </div>}
@@ -132,20 +133,16 @@ export default function Dashboard({ user }) {
       {/* 统计卡片 */}
       <div className="stats">
         <div className="stat-card total">
-          <span className="num">{stats.total}</span>
-          <div className="label">设备总数</div>
+          <span className="stat-icon">∑</span><div><span className="num">{stats.total}</span><div className="label">设备总数</div></div>
         </div>
         <div className="stat-card in-stock">
-          <span className="num">{stats.in_stock}</span>
-          <div className="label">🟢 在库</div>
+          <span className="stat-icon">✓</span><div><span className="num">{stats.in_stock}</span><div className="label">当前在库</div></div>
         </div>
         <div className="stat-card borrowed">
-          <span className="num">{stats.borrowed}</span>
-          <div className="label">🔵 借出</div>
+          <span className="stat-icon">↗</span><div><span className="num">{stats.borrowed}</span><div className="label">当前借出</div></div>
         </div>
         <div className="stat-card in-repair">
-          <span className="num">{stats.in_repair}</span>
-          <div className="label">🟠 维修</div>
+          <span className="stat-icon">!</span><div><span className="num">{stats.in_repair}</span><div className="label">维修处理中</div></div>
         </div>
       </div>
 

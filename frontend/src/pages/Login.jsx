@@ -29,9 +29,10 @@ export default function Login({ onSuccess, onSwitchToRegister }) {
   return (
     <div className="auth-page">
       <div className="auth-card">
-        <div className="auth-logo">🤖</div>
-        <h2 className="auth-title">宇树机器人出入库管理</h2>
-        <div className="auth-sub">登录后开始管理设备</div>
+        <div className="auth-logo"><span>UT</span></div>
+        <div className="auth-eyebrow">INTERNAL ASSET CENTER</div>
+        <h2 className="auth-title">部门设备管理中心</h2>
+        <div className="auth-sub">安全登录，统一管理设备与配件库存</div>
 
         <form onSubmit={submit} className="auth-form">
           <div className="auth-field">

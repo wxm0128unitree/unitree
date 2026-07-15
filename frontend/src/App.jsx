@@ -73,7 +73,12 @@ export default function App() {
     <div className="app">
       <header className="header">
         <div className="header-left">
-          <h1>🤖 部门设备与配件库存管理</h1>
+          <div className="brand-mark" aria-hidden="true">UT</div>
+          <div className="brand-copy">
+            <span className="brand-eyebrow">UNITREE · INTERNAL ASSET CENTER</span>
+            <h1>部门设备与配件管理中心</h1>
+            <span className="header-subtitle">设备清晰可见，流转全程可追溯</span>
+          </div>
         </div>
         <div className="header-user">
           <div className="user-info">
@@ -94,13 +99,13 @@ export default function App() {
 
       <div className="tabs">
         <button className={tab === 'dashboard' ? 'active' : ''} onClick={() => setTab('dashboard')}>
-          📊 设备看板
+          <span className="nav-icon">▦</span>设备看板
         </button>
         <button className={tab === 'logs' ? 'active' : ''} onClick={() => setTab('logs')}>
-          📋 操作日志
+          <span className="nav-icon">≡</span>操作日志
         </button>
-        {user.is_admin === 1 && <button className={tab === 'users' ? 'active' : ''} onClick={() => setTab('users')}>👥 用户管理</button>}
-        {user.is_admin === 1 && <button className={tab === 'backups' ? 'active' : ''} onClick={() => setTab('backups')}>💾 备份恢复</button>}
+        {user.is_admin === 1 && <button className={tab === 'users' ? 'active' : ''} onClick={() => setTab('users')}><span className="nav-icon">◎</span>用户管理</button>}
+        {user.is_admin === 1 && <button className={tab === 'backups' ? 'active' : ''} onClick={() => setTab('backups')}><span className="nav-icon">◇</span>备份恢复</button>}
       </div>
 
       {tab === 'dashboard' && <Dashboard user={user} />}

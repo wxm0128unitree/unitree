@@ -13,7 +13,7 @@ export default function Backups() {
     if (typed !== 'RESTORE') return
     try { const r = await api.restoreBackup(kind, name); setMessage(r.message); load() } catch (e) { setMessage(e.message) }
   }
-  return <div className="admin-page"><section className="panel"><div className="panel-title"><div><h2>备份与恢复</h2><p>恢复前会校验备份并自动保存当前数据库。Render 重新部署可能清空临时文件，请及时下载备份。</p></div><button onClick={run}>立即备份</button></div>
+  return <div className="admin-page"><div className="page-heading"><div><span className="eyebrow">DATA PROTECTION</span><h2>备份与恢复</h2><p>保护业务数据，并在必要时安全恢复。</p></div></div><section className="panel backup-panel"><div className="panel-title"><div className="panel-heading"><span className="panel-icon">◇</span><div><h2>数据库备份</h2><p>恢复前会校验备份并自动保存当前数据库。Render 重新部署可能清空临时文件，请及时下载备份。</p></div></div><button onClick={run}>立即备份</button></div>
     {message && <p className="notice">{message}</p>}
     {Object.entries(groups).map(([kind, files]) => <div key={kind}><h3>{({ daily: '每日', weekly: '每周', manual: '手动' })[kind]}备份</h3>
       {files.length === 0 ? <p className="muted">暂无备份</p> : <div className="backup-list">{files.map(f => <div key={f.name}><span>{f.name}（{Math.ceil(f.size / 1024)} KB）</span><span className="row-actions"><button onClick={() => api.downloadBackup(kind, f.name).catch(e => setMessage(e.message))}>下载</button><button className="danger-text" onClick={() => restore(kind, f.name)}>恢复</button></span></div>)}</div>}

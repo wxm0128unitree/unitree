@@ -11,7 +11,8 @@ export default function Users({ currentUser }) {
   const create = async e => { e.preventDefault(); try { await api.createUser(form); setForm({ name: '', phone: '', password: '', is_admin: 0 }); setMessage('用户已创建'); load() } catch (err) { setMessage(err.message) } }
   const update = async (id, data) => { try { await api.updateUser(id, data); setMessage('用户已更新'); load() } catch (err) { setMessage(err.message) } }
   return <div className="admin-page">
-    <section className="panel"><h2>创建内部用户</h2><form className="inline-form" onSubmit={create}>
+    <div className="page-heading"><div><span className="eyebrow">ACCESS CONTROL</span><h2>用户管理</h2><p>管理部门内部账号、角色与访问状态。</p></div><span className="page-count">{users.length} 个账号</span></div>
+    <section className="panel"><div className="panel-heading"><span className="panel-icon">＋</span><div><h2>创建内部用户</h2><p>为部门成员创建可追溯的独立账号。</p></div></div><form className="inline-form" onSubmit={create}>
       <input aria-label="姓名" placeholder="真实姓名" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} required />
       <input aria-label="手机号" placeholder="11 位手机号" value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} required />
       <input aria-label="初始密码" type="password" autoComplete="new-password" placeholder="初始密码（至少 6 位）" value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))} required />
@@ -19,7 +20,7 @@ export default function Users({ currentUser }) {
       <button>创建</button>
     </form></section>
     {message && <p className="notice">{message}</p>}
-    <section className="panel"><h2>用户管理</h2><div className="table-wrap"><table><thead><tr><th>姓名</th><th>手机号</th><th>权限</th><th>状态</th><th>最后登录</th><th>操作</th></tr></thead><tbody>
+    <section className="panel"><div className="panel-heading"><span className="panel-icon">◎</span><div><h2>账号列表</h2><p>权限变更会立即生效。</p></div></div><div className="table-wrap"><table><thead><tr><th>姓名</th><th>手机号</th><th>权限</th><th>状态</th><th>最后登录</th><th>操作</th></tr></thead><tbody>
       {users.map(u => <tr key={u.id}><td>{u.name}</td><td>{u.phone}</td><td>{u.is_admin ? '管理员' : '普通用户'}</td><td>{u.is_active ? '启用' : '停用'}</td><td>{u.last_login_at ? formatShanghaiDateTime(u.last_login_at) : '从未'}</td><td className="row-actions">
         <button onClick={() => update(u.id, { is_admin: u.is_admin ? 0 : 1 })}>{u.is_admin ? '取消管理员' : '设为管理员'}</button>
         <button disabled={u.id === currentUser.id} onClick={() => update(u.id, { is_active: u.is_active ? 0 : 1 })}>{u.is_active ? '停用' : '启用'}</button>
