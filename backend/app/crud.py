@@ -4,6 +4,7 @@
 """
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
+from sqlalchemy.exc import IntegrityError
 from app import models, schemas
 from fastapi import HTTPException
 from typing import List, Optional
@@ -12,6 +13,32 @@ from datetime import datetime
 
 def get_robot_by_code(db: Session, asset_code: str) -> Optional[models.Robot]:
     return db.query(models.Robot).filter(models.Robot.asset_code == asset_code).first()
+
+
+VALID_DEVICE_BRANCHES = {"standard_robot", "training_platform"}
+VALID_PLATFORM_TYPES = {"humanoid", "quadruped"}
+
+
+def _normalize_robot_identity(data: dict) -> dict:
+    """统一成品机器人/实训台身份，避免矛盾字段导致统计遗漏。"""
+    normalized = dict(data)
+    normalized["asset_code"] = (normalized.get("asset_code") or "").strip()
+    normalized["model"] = (normalized.get("model") or "").strip()
+    branch = (normalized.get("device_branch") or "standard_robot").strip()
+    platform_type = (normalized.get("platform_type") or "").strip()
+    if branch not in VALID_DEVICE_BRANCHES:
+        raise HTTPException(status_code=400, detail="设备分支不正确")
+    if branch == "training_platform":
+        if platform_type not in VALID_PLATFORM_TYPES:
+            raise HTTPException(status_code=400, detail="实训台必须选择人形或四足类型")
+        normalized["model"] = "实训台"
+    else:
+        if not normalized["model"]:
+            raise HTTPException(status_code=400, detail="机器人型号不能为空")
+        platform_type = ""
+    normalized["device_branch"] = branch
+    normalized["platform_type"] = platform_type
+    return normalized
 
 
 def list_robots(
@@ -47,30 +74,28 @@ def list_robots(
 
 def create_robot(db: Session, payload: schemas.RobotCreate, operator: str = "admin") -> models.Robot:
     """新增设备"""
-    if get_robot_by_code(db, payload.asset_code):
-        raise HTTPException(status_code=400, detail=f"资产编号 {payload.asset_code} 已存在")
-    if not payload.model or not payload.model.strip():
-        raise HTTPException(status_code=400, detail="型号不能为空")
-    if len(payload.model) > 32:
-        raise HTTPException(status_code=400, detail="型号长度不能超过 32 个字符")
+    data = _normalize_robot_identity(payload.model_dump())
+    if not data["asset_code"]:
+        raise HTTPException(status_code=400, detail="资产编号不能为空")
+    if get_robot_by_code(db, data["asset_code"]):
+        raise HTTPException(status_code=400, detail=f"资产编号 {data['asset_code']} 已存在")
     if payload.status and len(payload.status) > 32:
         raise HTTPException(status_code=400, detail="状态长度不能超过 32 个字符")
-    robot = models.Robot(**payload.model_dump())
+    robot = models.Robot(**data)
     db.add(robot)
-    db.commit()
+    try:
+        db.flush()
+        # 设备与首条审计日志在同一事务中提交，避免只写入设备却没有日志。
+        db.add(models.OperationLog(
+            robot_id=robot.id, operator=operator, action="入库",
+            before_status="", after_status=robot.status,
+            before_location="", after_location=robot.location or "", note="设备创建",
+        ))
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=f"资产编号 {data['asset_code']} 已存在")
     db.refresh(robot)
-    # 入库操作也写一条日志（方便追溯）
-    db.add(models.OperationLog(
-        robot_id=robot.id,
-        operator=operator,
-        action="入库",
-        before_status="",
-        after_status=robot.status,
-        before_location="",
-        after_location=robot.location or "",
-        note="\u8bbe\u5907\u521b\u5efa",
-    ))
-    db.commit()
     return robot
 
 
@@ -78,7 +103,10 @@ def update_robot_status(
     db: Session, robot_id: int, payload: schemas.RobotUpdate, operator: str = "admin",
 ) -> models.Robot:
     """核心动作：修改设备状态（借出/归还/维修/转移）"""
-    robot = db.query(models.Robot).filter(models.Robot.id == robot_id, models.Robot.is_archived == 0).first()
+    robot = db.query(models.Robot).filter(
+        models.Robot.id == robot_id, models.Robot.is_archived == 0,
+        models.Robot.lifecycle_status == "active",
+    ).first()
     if not robot:
         raise HTTPException(status_code=404, detail="设备不存在")
 
@@ -187,7 +215,10 @@ def list_logs(
 
 
 def delete_robot(db: Session, robot_id: int, operator: str = "admin"):
-    robot = db.query(models.Robot).filter(models.Robot.id == robot_id, models.Robot.is_archived == 0).first()
+    robot = db.query(models.Robot).filter(
+        models.Robot.id == robot_id, models.Robot.is_archived == 0,
+        models.Robot.lifecycle_status == "active",
+    ).first()
     if not robot:
         raise HTTPException(status_code=404, detail="设备不存在")
     robot.is_archived = 1
@@ -212,15 +243,24 @@ def restore_robot(db: Session, robot_id: int, operator: str = "admin"):
 
 
 def edit_robot(db: Session, robot_id: int, payload: schemas.RobotEdit, operator: str):
-    robot = db.query(models.Robot).filter(models.Robot.id == robot_id, models.Robot.is_archived == 0).first()
+    robot = db.query(models.Robot).filter(
+        models.Robot.id == robot_id, models.Robot.is_archived == 0,
+        models.Robot.lifecycle_status == "active",
+    ).first()
     if not robot:
         raise HTTPException(status_code=404, detail="设备不存在")
     duplicate = db.query(models.Robot).filter(models.Robot.asset_code == payload.asset_code.strip(), models.Robot.id != robot_id).first()
     if duplicate:
         raise HTTPException(status_code=400, detail=f"资产编号 {payload.asset_code} 已存在")
+    identity = _normalize_robot_identity({
+        "asset_code": payload.asset_code,
+        "model": payload.model,
+        "device_branch": payload.device_branch if payload.device_branch is not None else robot.device_branch,
+        "platform_type": payload.platform_type if payload.platform_type is not None else robot.platform_type,
+    })
     changed = []
     for field in ("asset_code", "model", "device_branch", "platform_type", "owner_department", "owner_name", "location", "remark"):
-        value = getattr(payload, field).strip()
+        value = identity[field] if field in identity else getattr(payload, field).strip()
         if getattr(robot, field) != value:
             changed.append(field)
             setattr(robot, field, value)
@@ -234,7 +274,10 @@ def edit_robot(db: Session, robot_id: int, payload: schemas.RobotEdit, operator:
 
 
 def inventory_robot(db: Session, robot_id: int, payload: schemas.InventoryUpdate, operator: str):
-    robot = db.query(models.Robot).filter(models.Robot.id == robot_id, models.Robot.is_archived == 0).first()
+    robot = db.query(models.Robot).filter(
+        models.Robot.id == robot_id, models.Robot.is_archived == 0,
+        models.Robot.lifecycle_status == "active",
+    ).first()
     if not robot:
         raise HTTPException(status_code=404, detail="设备不存在")
     robot.last_inventory_at = models.utc_now()
@@ -250,7 +293,10 @@ def inventory_robot(db: Session, robot_id: int, payload: schemas.InventoryUpdate
 
 
 def migrate_robot(db: Session, robot_id: int, payload: schemas.RobotMigration, operator: str):
-    robot = db.query(models.Robot).filter(models.Robot.id == robot_id, models.Robot.lifecycle_status == "active").first()
+    robot = db.query(models.Robot).filter(
+        models.Robot.id == robot_id, models.Robot.lifecycle_status == "active",
+        models.Robot.is_archived == 0,
+    ).first()
     if not robot: raise HTTPException(status_code=404, detail="设备不存在或已迁移")
     robot.lifecycle_status = "migrated"
     robot.migrated_at = models.utc_now()
@@ -301,6 +347,7 @@ def inventory_action(db: Session, item_id: int, payload: schemas.InventoryAction
     before_total, before_available = item.total_quantity, item.available_quantity
     if action == "stock_in": item.total_quantity += qty; item.available_quantity += qty
     elif action == "borrow":
+        if not payload.borrower.strip(): raise HTTPException(status_code=400, detail="借出必须填写借用人")
         if qty > item.available_quantity: raise HTTPException(status_code=400, detail="出库数量超过当前库存")
         item.available_quantity -= qty; item.loaned_quantity += qty
     elif action == "return":

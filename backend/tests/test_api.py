@@ -130,6 +130,8 @@ def test_quantity_inventory_borrow_return_and_migration():
         assert borrowed.json()['loaned_quantity'] == 3
         assert client.post(f'/api/inventory/items/{item_id}/action', headers=headers,
             json={'action': 'borrow', 'quantity': 99}).status_code == 400
+        assert client.post(f'/api/inventory/items/{item_id}/action', headers=headers,
+            json={'action': 'borrow', 'quantity': 1}).status_code == 400
         returned = client.post(f'/api/inventory/items/{item_id}/action', headers=headers,
             json={'action': 'return', 'quantity': 2})
         assert returned.json()['available_quantity'] == 19
@@ -155,6 +157,39 @@ def test_training_platform_stats_and_robot_migration():
             json={'destination_department': '其他部门', 'destination_holder': '李四', 'reason': '项目迁移'})
         assert migrated.status_code == 200
         assert migrated.json()['lifecycle_status'] == 'migrated'
+        assert client.post(f'/api/robots/{robot_id}/status', headers=headers,
+            json={'status': '借出', 'location': '外部'}).status_code == 404
+        assert client.post(f'/api/robots/{robot_id}/inventory', headers=headers,
+            json={'location': '外部', 'note': '不应允许'}).status_code == 404
         active_ids = [r['id'] for r in client.get('/api/robots', headers=headers).json()]
         assert robot_id not in active_ids
         assert client.post(f'/api/robots/{robot_id}/undo-migration', headers=headers).status_code == 200
+
+
+def test_training_platform_identity_is_normalized_and_survives_editing():
+    with TestClient(app) as client:
+        headers = auth(client)
+        created = client.post('/api/robots', headers=headers, json={
+            'asset_code': 'PT-Q-LOGIC-001', 'model': 'G1',
+            'device_branch': 'training_platform', 'platform_type': 'quadruped', 'status': '在库'
+        })
+        assert created.status_code == 200, created.text
+        robot = created.json()
+        assert robot['model'] == '实训台'
+        assert robot['device_branch'] == 'training_platform'
+        assert client.get('/api/stats', headers=headers).json()['training_platforms']['quadruped'] >= 1
+
+        edited = client.put(f"/api/robots/{robot['id']}", headers=headers, json={
+            'asset_code': robot['asset_code'], 'model': 'R1',
+            'device_branch': 'training_platform', 'platform_type': 'quadruped',
+            'owner_department': '实训中心', 'owner_name': '', 'location': '3楼', 'remark': ''
+        })
+        assert edited.status_code == 200, edited.text
+        assert edited.json()['model'] == '实训台'
+        assert edited.json()['device_branch'] == 'training_platform'
+
+        invalid = client.post('/api/robots', headers=headers, json={
+            'asset_code': 'PT-BAD-001', 'model': '实训台',
+            'device_branch': 'training_platform', 'platform_type': '', 'status': '在库'
+        })
+        assert invalid.status_code == 400

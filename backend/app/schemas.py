@@ -54,8 +54,8 @@ class RobotUpdate(BaseModel):
 class RobotEdit(BaseModel):
     asset_code: str = Field(..., min_length=1, max_length=64)
     model: str = Field(..., min_length=1, max_length=32)
-    device_branch: str = Field(default="standard_robot", max_length=32)
-    platform_type: str = Field(default="", max_length=32)
+    device_branch: Optional[str] = Field(default=None, max_length=32)
+    platform_type: Optional[str] = Field(default=None, max_length=32)
     owner_department: str = Field(default="", max_length=64)
     owner_name: str = Field(default="", max_length=32)
     location: str = Field(default="", max_length=128)
@@ -96,8 +96,8 @@ class RobotStats(BaseModel):
     in_stock: int
     borrowed: int
     in_repair: int
-    by_model: dict = {}
-    training_platforms: dict = {}
+    by_model: dict = Field(default_factory=dict)
+    training_platforms: dict = Field(default_factory=dict)
 
 
 class RobotMigration(BaseModel):

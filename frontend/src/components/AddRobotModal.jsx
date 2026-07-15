@@ -5,7 +5,8 @@ const DEFAULT_STATUSES = ['在库', '借出', '维修中']
 
 export default function AddRobotModal({ onClose, onSubmit, knownModels = [] }) {
   const [assetCode, setAssetCode] = useState('')
-  const [model, setModel] = useState(knownModels[0] || 'G1')
+  const robotModels = knownModels.filter(m => m && m !== '实训台')
+  const [model, setModel] = useState(robotModels[0] || 'G1')
   const [deviceBranch, setDeviceBranch] = useState('standard_robot')
   const [platformType, setPlatformType] = useState('humanoid')
   const [ownerDepartment, setOwnerDepartment] = useState('')
@@ -34,7 +35,7 @@ export default function AddRobotModal({ onClose, onSubmit, knownModels = [] }) {
     localStorage.setItem('customStatusesList', JSON.stringify(customStatuses))
   }, [customStatuses])
 
-  const allModels = Array.from(new Set([...DEFAULT_MODELS, ...knownModels, ...customModels]))
+  const allModels = Array.from(new Set([...DEFAULT_MODELS, ...knownModels, ...customModels])).filter(m => m !== '实训台')
   const allStatuses = Array.from(new Set([...DEFAULT_STATUSES, ...customStatuses]))
 
   const addNewModel = () => {
@@ -55,7 +56,7 @@ export default function AddRobotModal({ onClose, onSubmit, knownModels = [] }) {
     }
     onSubmit({
       asset_code: assetCode.trim(),
-      model,
+      model: deviceBranch === 'training_platform' ? '实训台' : model,
       device_branch: deviceBranch,
       platform_type: deviceBranch === 'training_platform' ? platformType : '',
       holder: ownerName.trim(),
@@ -83,7 +84,7 @@ export default function AddRobotModal({ onClose, onSubmit, knownModels = [] }) {
           />
         </div>
 
-        <div className="field">
+        {deviceBranch === 'standard_robot' && <div className="field">
           <label>型号</label>
           <select value={model} onChange={e => setModel(e.target.value)} style={{
             width: '100%', padding: '10px 12px', border: '1px solid var(--border)', borderRadius: 8
@@ -112,7 +113,7 @@ export default function AddRobotModal({ onClose, onSubmit, knownModels = [] }) {
               color: '#1677ff', border: '1px dashed #1677ff', borderRadius: 6, cursor: 'pointer', fontSize: 13
             }}>+ 新增型号</button>
           )}
-        </div>
+        </div>}
 
         <div className="field">
           <label>资产归属部门</label>
@@ -126,7 +127,7 @@ export default function AddRobotModal({ onClose, onSubmit, knownModels = [] }) {
         {deviceBranch === 'standard_robot' ? <div className="field">
           <label>资产负责人</label>
           <input type="text" value={ownerName} onChange={e => setOwnerName(e.target.value)} placeholder="如：张三" />
-        </div> : <div className="field"><label>实训台类型</label><select value={platformType} onChange={e=>setPlatformType(e.target.value)} style={{width:'100%',padding:'10px 12px',border:'1px solid var(--border)',borderRadius:8}}><option value="humanoid">人形实训台</option><option value="quadruped">四足实训台</option></select></div>}
+        </div> : <div className="field"><label>实训台类型 *</label><select value={platformType} onChange={e=>setPlatformType(e.target.value)} style={{width:'100%',padding:'10px 12px',border:'1px solid var(--border)',borderRadius:8}}><option value="humanoid">人形实训台</option><option value="quadruped">四足实训台</option></select><small className="field-hint">实训台按形态统计，不再选择 G1、R1 等成品机器人型号。</small></div>}
 
         <div className="field">
           <label>初始状态</label>

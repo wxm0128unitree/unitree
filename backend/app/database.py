@@ -89,6 +89,7 @@ def init_db():
     from app import models  # noqa
     Base.metadata.create_all(bind=engine, checkfirst=True)
     _migrate_existing_database()
+    _normalize_legacy_training_platforms()
 
 
 def _migrate_existing_database():
@@ -139,6 +140,29 @@ def _migrate_existing_database():
                 message = str(exc).lower()
                 if "duplicate column" not in message and "already exists" not in message:
                     raise
+
+
+def _normalize_legacy_training_platforms():
+    """只修复可明确识别的旧分类值，不删除、不覆盖无法判断的数据。"""
+    if "robots" not in set(inspect(engine).get_table_names()):
+        return
+    with engine.begin() as conn:
+        conn.exec_driver_sql(
+            "UPDATE robots SET device_branch = 'training_platform' "
+            "WHERE device_branch IN ('training', 'training_table', '实训台')"
+        )
+        conn.exec_driver_sql(
+            "UPDATE robots SET platform_type = 'humanoid', device_branch = 'training_platform' "
+            "WHERE platform_type IN ('human', '人形', '人形实训台') OR model = '人形实训台'"
+        )
+        conn.exec_driver_sql(
+            "UPDATE robots SET platform_type = 'quadruped', device_branch = 'training_platform' "
+            "WHERE platform_type IN ('quadruped_robot', '四足', '四足实训台') OR model = '四足实训台'"
+        )
+        conn.exec_driver_sql(
+            "UPDATE robots SET device_branch = 'training_platform' "
+            "WHERE model = '实训台' AND platform_type IN ('humanoid', 'quadruped')"
+        )
 
 
 def single_process_bootstrap():
