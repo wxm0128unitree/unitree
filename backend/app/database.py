@@ -161,7 +161,7 @@ def _normalize_legacy_training_platforms():
         )
         conn.exec_driver_sql(
             "UPDATE robots SET device_branch = 'training_platform' "
-            "WHERE model = '实训台' AND platform_type IN ('humanoid', 'quadruped')"
+            "WHERE model = '实训台'"
         )
 
 

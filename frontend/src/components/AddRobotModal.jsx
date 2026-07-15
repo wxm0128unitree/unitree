@@ -8,7 +8,6 @@ export default function AddRobotModal({ onClose, onSubmit, knownModels = [] }) {
   const robotModels = knownModels.filter(m => m && m !== '实训台')
   const [model, setModel] = useState(robotModels[0] || 'G1')
   const [deviceBranch, setDeviceBranch] = useState('standard_robot')
-  const [platformType, setPlatformType] = useState('humanoid')
   const [ownerDepartment, setOwnerDepartment] = useState('')
   const [ownerName, setOwnerName] = useState('')
   const [status, setStatus] = useState('在库')
@@ -58,7 +57,7 @@ export default function AddRobotModal({ onClose, onSubmit, knownModels = [] }) {
       asset_code: assetCode.trim(),
       model: deviceBranch === 'training_platform' ? '实训台' : model,
       device_branch: deviceBranch,
-      platform_type: deviceBranch === 'training_platform' ? platformType : '',
+      platform_type: '',
       holder: ownerName.trim(),
       owner_department: ownerDepartment.trim(),
       owner_name: ownerName.trim(),
@@ -124,10 +123,10 @@ export default function AddRobotModal({ onClose, onSubmit, knownModels = [] }) {
             placeholder="如：研发部"
           />
         </div>
-        {deviceBranch === 'standard_robot' ? <div className="field">
+        {deviceBranch === 'standard_robot' && <div className="field">
           <label>资产负责人</label>
           <input type="text" value={ownerName} onChange={e => setOwnerName(e.target.value)} placeholder="如：张三" />
-        </div> : <div className="field"><label>实训台类型 *</label><select value={platformType} onChange={e=>setPlatformType(e.target.value)} style={{width:'100%',padding:'10px 12px',border:'1px solid var(--border)',borderRadius:8}}><option value="humanoid">人形实训台</option><option value="quadruped">四足实训台</option></select><small className="field-hint">实训台按形态统计，不再选择 G1、R1 等成品机器人型号。</small></div>}
+        </div>}
 
         <div className="field">
           <label>初始状态</label>

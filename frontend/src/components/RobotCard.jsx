@@ -12,7 +12,7 @@ export default function RobotCard({ robot, onClick, onDelete, onEdit, onInventor
     <div className="robot-card" onClick={onClick}>
       <div className="row1">
         <span className="code">{robot.asset_code}</span>
-        <span className={modelClass}>{robot.device_branch === 'training_platform' ? (robot.platform_type === 'humanoid' ? '人形实训台' : '四足实训台') : robot.model}</span>
+        <span className={modelClass}>{robot.device_branch === 'training_platform' || robot.model === '实训台' ? '实训台' : robot.model}</span>
       </div>
       <div className="holder">
         <span className="holder-icon">👤</span>

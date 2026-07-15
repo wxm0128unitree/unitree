@@ -152,7 +152,8 @@ def test_training_platform_stats_and_robot_migration():
         assert created.status_code == 200, created.text
         robot_id = created.json()['id']
         stats = client.get('/api/stats', headers=headers).json()
-        assert stats['training_platforms']['humanoid'] >= 1
+        assert stats['training_platforms']['total'] >= 1
+        assert stats['training_platforms']['in_stock'] >= 1
         migrated = client.post(f'/api/robots/{robot_id}/migrate', headers=headers,
             json={'destination_department': '其他部门', 'destination_holder': '李四', 'reason': '项目迁移'})
         assert migrated.status_code == 200
@@ -177,7 +178,7 @@ def test_training_platform_identity_is_normalized_and_survives_editing():
         robot = created.json()
         assert robot['model'] == '实训台'
         assert robot['device_branch'] == 'training_platform'
-        assert client.get('/api/stats', headers=headers).json()['training_platforms']['quadruped'] >= 1
+        assert client.get('/api/stats', headers=headers).json()['training_platforms']['total'] >= 1
 
         edited = client.put(f"/api/robots/{robot['id']}", headers=headers, json={
             'asset_code': robot['asset_code'], 'model': 'R1',
@@ -188,8 +189,15 @@ def test_training_platform_identity_is_normalized_and_survives_editing():
         assert edited.json()['model'] == '实训台'
         assert edited.json()['device_branch'] == 'training_platform'
 
-        invalid = client.post('/api/robots', headers=headers, json={
-            'asset_code': 'PT-BAD-001', 'model': '实训台',
-            'device_branch': 'training_platform', 'platform_type': '', 'status': '在库'
+        without_shape = client.post('/api/robots', headers=headers, json={
+            'asset_code': 'PT-NO-SHAPE-001', 'model': '实训台',
+            'device_branch': 'training_platform', 'status': '在库'
         })
-        assert invalid.status_code == 400
+        assert without_shape.status_code == 200
+        assert without_shape.json()['platform_type'] == ''
+
+        legacy_identity = client.post('/api/robots', headers=headers, json={
+            'asset_code': 'PT-LEGACY-MODEL-001', 'model': '实训台', 'status': '在库'
+        })
+        assert legacy_identity.status_code == 200
+        assert legacy_identity.json()['device_branch'] == 'training_platform'

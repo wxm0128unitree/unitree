@@ -20,7 +20,7 @@ VALID_PLATFORM_TYPES = {"humanoid", "quadruped"}
 
 
 def _normalize_robot_identity(data: dict) -> dict:
-    """统一成品机器人/实训台身份，避免矛盾字段导致统计遗漏。"""
+    """统一成品机器人/实训台身份，实训台不再区分形态。"""
     normalized = dict(data)
     normalized["asset_code"] = (normalized.get("asset_code") or "").strip()
     normalized["model"] = (normalized.get("model") or "").strip()
@@ -28,10 +28,11 @@ def _normalize_robot_identity(data: dict) -> dict:
     platform_type = (normalized.get("platform_type") or "").strip()
     if branch not in VALID_DEVICE_BRANCHES:
         raise HTTPException(status_code=400, detail="设备分支不正确")
-    if branch == "training_platform":
-        if platform_type not in VALID_PLATFORM_TYPES:
-            raise HTTPException(status_code=400, detail="实训台必须选择人形或四足类型")
+    if branch == "training_platform" or normalized["model"] == "实训台":
+        branch = "training_platform"
         normalized["model"] = "实训台"
+        # 兼容保留历史人形/四足值；新记录使用空值，不再要求或展示形态。
+        platform_type = platform_type if platform_type in VALID_PLATFORM_TYPES else ""
     else:
         if not normalized["model"]:
             raise HTTPException(status_code=400, detail="机器人型号不能为空")
@@ -174,10 +175,13 @@ def get_stats(db: Session) -> dict:
     in_repair = db.query(models.Robot).filter(active, models.Robot.status == "维修中").count()
     rows = db.query(models.Robot).filter(active).all()
     by_model = {}
-    training = {"humanoid": 0, "quadruped": 0}
+    training = {"total": 0, "in_stock": 0, "borrowed": 0, "in_repair": 0}
     for robot in rows:
-        if robot.device_branch == "training_platform":
-            training[robot.platform_type or "other"] = training.get(robot.platform_type or "other", 0) + 1
+        if robot.device_branch == "training_platform" or robot.model == "实训台":
+            training["total"] += 1
+            if robot.status == "在库": training["in_stock"] += 1
+            elif robot.status == "借出": training["borrowed"] += 1
+            elif robot.status == "维修中": training["in_repair"] += 1
         else:
             entry = by_model.setdefault(robot.model, {"total": 0, "in_stock": 0, "borrowed": 0, "in_repair": 0})
             entry["total"] += 1
