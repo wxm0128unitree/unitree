@@ -1,5 +1,5 @@
 import { useState } from 'react'
-const NAMES = { stock_in: '采购入库', borrow: '借出', return: '归还', migrate: '迁移', scrap: '报废' }
+const NAMES = { stock_in: '增加数量', borrow: '借出', return: '归还', migrate: '迁移', scrap: '减少数量' }
 export default function InventoryActionModal({ item, action, onClose, onSubmit }) {
   const [form, setForm] = useState({ action, quantity: 1, borrower: '', purpose: '', destination_department: '', destination_holder: '', expected_return_at: null, note: '' })
   const set = (k,v) => setForm(f => ({...f,[k]:v}))
@@ -10,6 +10,7 @@ export default function InventoryActionModal({ item, action, onClose, onSubmit }
     <div className="field"><label>数量 *</label><input type="number" min="1" value={form.quantity} onChange={e => set('quantity', Number(e.target.value))} /></div>
     {action === 'borrow' && <><div className="field"><label>借用人 *</label><input value={form.borrower} onChange={e => set('borrower', e.target.value)} /></div><div className="field"><label>用途</label><input value={form.purpose} onChange={e => set('purpose', e.target.value)} /></div><div className="field"><label>预计归还</label><input type="datetime-local" onChange={e => set('expected_return_at', e.target.value || null)} /></div></>}
     {action === 'migrate' && <><div className="field"><label>接收部门 *</label><input value={form.destination_department} onChange={e => set('destination_department', e.target.value)} /></div><div className="field"><label>接收人</label><input value={form.destination_holder} onChange={e => set('destination_holder', e.target.value)} /></div></>}
+    {action === 'scrap' && <p className="form-hint">普通用户可以调整自己负责配件的数量，但只有管理员可以将总数量减到 0 并永久移除记录。</p>}
     <div className="field"><label>备注</label><input value={form.note} onChange={e => set('note', e.target.value)} /></div>
     <div className="actions"><button className="cancel" onClick={onClose}>取消</button><button className={action === 'migrate' || action === 'scrap' ? 'danger-solid' : 'primary'} onClick={() => onSubmit(form)}>确认{NAMES[action]}</button></div>
   </div></div>

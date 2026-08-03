@@ -492,7 +492,8 @@ def list_inventory_items(db: Session, category: Optional[str] = None, status: Op
         models.InventoryItem.asset_code).all()
 
 
-def inventory_action(db: Session, item_id: int, payload: schemas.InventoryAction, operator: str):
+def inventory_action(db: Session, item_id: int, payload: schemas.InventoryAction, operator: str,
+    allow_permanent_delete: bool = False):
     item = db.query(models.InventoryItem).filter(models.InventoryItem.id == item_id, models.InventoryItem.is_archived == 0).with_for_update().first()
     if not item: raise HTTPException(status_code=404, detail="库存项目不存在")
     if item.category in INDIVIDUAL_INVENTORY_CATEGORIES:
@@ -514,9 +515,13 @@ def inventory_action(db: Session, item_id: int, payload: schemas.InventoryAction
     elif action == "migrate":
         if not payload.destination_department.strip(): raise HTTPException(status_code=400, detail="迁移必须填写接收部门")
         if qty > item.available_quantity: raise HTTPException(status_code=400, detail="迁移数量超过当前库存")
+        if qty == item.total_quantity and not allow_permanent_delete:
+            raise HTTPException(status_code=403, detail="只有管理员可以将配件数量减到 0")
         item.available_quantity -= qty; item.total_quantity -= qty
     elif action == "scrap":
         if qty > item.available_quantity: raise HTTPException(status_code=400, detail="报废数量超过当前库存")
+        if qty == item.total_quantity and not allow_permanent_delete:
+            raise HTTPException(status_code=403, detail="只有管理员可以将配件数量减到 0")
         item.available_quantity -= qty; item.total_quantity -= qty
     else: raise HTTPException(status_code=400, detail="不支持的库存操作")
     tx = models.InventoryTransaction(inventory_item_id=item.id, action=action, quantity=qty,

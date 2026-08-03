@@ -472,7 +472,8 @@ def api_delete_inventory_item(item_id: int, db: Session = Depends(get_db),
 def api_inventory_action(item_id: int, payload: schemas.InventoryAction, db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)):
     _require_inventory_access(db, item_id, current_user)
-    return crud.inventory_action(db, item_id, payload, current_user.name)
+    return crud.inventory_action(db, item_id, payload, current_user.name,
+        allow_permanent_delete=current_user.is_admin == 1)
 
 
 @app.get("/api/inventory/stats", tags=["数量库存"])

@@ -284,6 +284,14 @@ def test_responsible_account_controls_access_not_current_holder():
         holder_headers={'Authorization':f"Bearer {holder_login['access_token']}"}
         assert client.get(f"/api/robots/{robot['id']}", headers=owner_headers).status_code == 200
         assert client.get(f"/api/robots/{robot['id']}", headers=holder_headers).status_code == 404
+        edited = client.put(f"/api/robots/{robot['id']}", headers=owner_headers, json={
+            'asset_code': 'RESP-001', 'model': 'G1', 'device_branch': 'standard_robot',
+            'platform_type': '', 'owner_department': '不得修改', 'owner_name': '内部持有人',
+            'holder': '内部持有人', 'location': '负责人更新的位置', 'remark': '负责人可编辑',
+        })
+        assert edited.status_code == 200, edited.text
+        assert edited.json()['location'] == '负责人更新的位置'
+        assert edited.json()['owner_name'] == '内部负责人'
 
         borrowed=client.post(f"/api/robots/{robot['id']}/status", headers=owner_headers, json={
             'status':'借出','borrower':'外部人员','holder':'其他值','location':'外部单位'
@@ -324,6 +332,31 @@ def test_inventory_is_owner_scoped_and_individual_codes_are_global():
         visible=client.get('/api/inventory/items?category=电池',headers=user_headers).json()
         assert [x['id'] for x in visible] == [battery.json()['id']]
         assert client.delete(f"/api/inventory/items/{battery.json()['id']}",headers=user_headers).status_code == 403
+
+        bulk = client.post('/api/inventory/items', headers=admin_headers, json={
+            'category':'Pico','model':'Pico 4','initial_quantity':3,
+            'owner_name':'配件负责人','holder':'配件负责人','status':'在库',
+        }).json()
+        edited = client.put(f"/api/inventory/items/{bulk['id']}", headers=user_headers, json={
+            'category':'Pico','subtype':'','model':'Pico 4','asset_code':'','status':'在库',
+            'unit':'个','location':'普通用户更新的位置','owner_department':'不得修改',
+            'owner_name':'测试管理员','holder':'配件负责人','remark':'普通用户可编辑资料',
+        })
+        assert edited.status_code == 200, edited.text
+        assert edited.json()['location'] == '普通用户更新的位置'
+        assert edited.json()['owner_name'] == '配件负责人'
+        increased = client.post(f"/api/inventory/items/{bulk['id']}/action", headers=user_headers,
+            json={'action':'stock_in','quantity':2})
+        assert increased.status_code == 200, increased.text
+        assert increased.json()['total_quantity'] == 5
+        reduced = client.post(f"/api/inventory/items/{bulk['id']}/action", headers=user_headers,
+            json={'action':'scrap','quantity':4})
+        assert reduced.status_code == 200, reduced.text
+        assert reduced.json()['total_quantity'] == 1
+        forbidden_zero = client.post(f"/api/inventory/items/{bulk['id']}/action", headers=user_headers,
+            json={'action':'scrap','quantity':1})
+        assert forbidden_zero.status_code == 403
+        assert client.get(f"/api/inventory/items?category=Pico", headers=user_headers).json()[0]['total_quantity'] == 1
 
 
 def test_holder_search_and_accessory_subtype_detail_filter():
