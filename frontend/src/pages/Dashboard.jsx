@@ -15,6 +15,7 @@ export default function Dashboard({ user }) {
   const [robots, setRobots] = useState([])
   const [stats, setStats] = useState({ total: 0, in_stock: 0, borrowed: 0, in_repair: 0 })
   const [inventoryStats, setInventoryStats] = useState({ total: 0, available: 0, loaned: 0, categories: {} })
+  const [holders, setHolders] = useState([])
   const [loading, setLoading] = useState(true)
   const [filters, setFilters] = useState({ model: '全部', status: '全部', holder: '全部', keyword: '' })
   const [activeRobot, setActiveRobot] = useState(null)
@@ -33,14 +34,16 @@ export default function Dashboard({ user }) {
   const load = async () => {
     setLoading(true)
     try {
-      const [list, st, inv] = await Promise.all([
+      const [list, st, inv, holderList] = await Promise.all([
         api.listRobots({ ...filters, include_archived: includeArchived ? 'true' : '' }),
         api.getStats(),
         api.getInventoryStats(),
+        api.listHolders(),
       ])
       setRobots(list)
       setStats(st)
       setInventoryStats(inv)
+      setHolders(holderList)
     } catch (e) {
       showToast('加载失败: ' + e.message, 'error')
     } finally {
@@ -108,8 +111,8 @@ export default function Dashboard({ user }) {
   // 从已有数据中动态提取所有出现过的型号 / 状态 / 持有人
   const allModels = Array.from(new Set(robots.map(r => r.model).filter(Boolean)))
   const allStatuses = Array.from(new Set(robots.map(r => r.status).filter(Boolean)))
-  const allHolders = Array.from(new Set(robots.map(r => r.holder).filter(Boolean))).sort()
-  const primaryModels = ['G1', 'R1', 'Go2', 'A2']
+  const allHolders = holders
+  const primaryModels = ['G1', 'R1', 'Go2', 'A2', '实训台']
   const extraModels = Object.keys(stats.by_model || {}).filter(model => !primaryModels.includes(model)).sort()
   const modelTone = { G1: 'blue', R1: 'indigo', Go2: 'cyan', A2: 'slate' }
 
@@ -117,18 +120,18 @@ export default function Dashboard({ user }) {
     <div>
       <div className="dashboard-switch" role="tablist">
         <button className={view==='overview'?'active':''} onClick={()=>setView('overview')}>总览</button>
-        <button className={view==='robots'?'active':''} onClick={()=>setView('robots')}>机器人与实训台</button>
+        <button className={view==='robots'?'active':''} onClick={()=>setView('robots')}>设备管理</button>
         <button className={view==='inventory'?'active':''} onClick={()=>setView('inventory')}>配件库存</button>
       </div>
       {view === 'overview' && <div className="overview-page">
         <div className="hero-summary"><div><span className="eyebrow">DEPARTMENT ASSETS</span><h2>部门资产一览</h2><p>机器人、实训台与配件库存集中管理，关键状态一目了然。</p></div><div className="hero-total"><span>当前资产总量</span><div><b>{stats.total + inventoryStats.total}</b><em>件</em></div><small>仅统计本部门在管资产</small></div></div>
-        <div className="section-heading compact"><div><h2>机器人设备</h2><p>成品机器人按型号统计，实训台单独统计。</p></div><button className="text-btn" onClick={()=>setView('robots')}>查看全部 →</button></div>
+        <div className="section-heading compact"><div><h2>机器人设备</h2><p>机器人与实训台统一按设备型号管理。</p></div><button className="text-btn" onClick={()=>setView('robots')}>查看全部 →</button></div>
         <div className="asset-stat-grid">{[...primaryModels, ...extraModels].map(model=>{const s=stats.by_model?.[model]||{total:0,in_stock:0,borrowed:0,in_repair:0};return <button className={`asset-stat tone-${modelTone[model]||'blue'}`} key={model} onClick={()=>{setFilters(f=>({...f,model}));setView('robots')}}><span className="asset-accent"/><span className="asset-stat-top"><span className="asset-model-badge">{model}</span><span className="asset-kind">成品机器人</span></span><span className="asset-stat-value"><b>{s.total}</b><em>台</em></span><span className="asset-status-line"><i className="dot stock"/>在库 {s.in_stock}<i className="dot loan"/>借出 {s.borrowed}<i className="dot repair"/>维修 {s.in_repair}</span></button>})}
-          <button className="asset-stat training tone-violet" onClick={()=>setView('robots')}><span className="asset-accent"/><span className="asset-stat-top"><span className="asset-model-badge">实训台</span><span className="asset-kind">独立设备</span></span><span className="asset-stat-value"><b>{stats.training_platforms?.total||0}</b><em>台</em></span><span className="asset-status-line"><i className="dot stock"/>在库 {stats.training_platforms?.in_stock||0}<i className="dot loan"/>借出 {stats.training_platforms?.borrowed||0}<i className="dot repair"/>维修 {stats.training_platforms?.in_repair||0}</span></button></div>
+          </div>
         <div className="section-heading compact"><div><h2>配件库存</h2><p>大数字为部门当前总量。</p></div><button className="text-btn" onClick={()=>setView('inventory')}>管理库存 →</button></div>
         <div className="category-stat-grid">{['Pico','夹爪','三指灵巧手','电池','遥控器','拓展坞'].map((name,i)=>{const icons=['🥽','🤏','🖐️','🔋','🎮','🔌'];const s=inventoryStats.categories?.[name]||{total:0,available:0,loaned:0};return <button key={name} className="category-stat" onClick={()=>setView('inventory')}><span className="asset-icon">{icons[i]}</span><span>{name}</span><b>{s.total}</b><small>库存 {s.available} · 借出 {s.loaned}</small></button>})}</div>
       </div>}
-      {view === 'inventory' && <Inventory onStats={setInventoryStats} />}
+      {view === 'inventory' && <Inventory onStats={setInventoryStats} user={user} />}
       {view === 'robots' && <>
       {/* 统计卡片 */}
       <div className="stats">

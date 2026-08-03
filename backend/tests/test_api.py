@@ -119,9 +119,10 @@ def test_quantity_inventory_borrow_return_and_migration():
         headers = auth(client)
         created = client.post('/api/inventory/items', headers=headers, json={
             'category': '电池', 'subtype': '', 'model': 'G1 电池', 'unit': '块',
-            'initial_quantity': 20, 'location': '电池柜'
+            'initial_quantity': 20, 'location': '电池柜', 'asset_code': 'BAT-G1', 'status': '在库'
         })
         assert created.status_code == 200, created.text
+        assert created.json()['asset_code'] == 'BAT-G1'
         item_id = created.json()['id']
         borrowed = client.post(f'/api/inventory/items/{item_id}/action', headers=headers, json={
             'action': 'borrow', 'quantity': 3, 'borrower': '张三', 'purpose': '测试'
@@ -152,8 +153,8 @@ def test_training_platform_stats_and_robot_migration():
         assert created.status_code == 200, created.text
         robot_id = created.json()['id']
         stats = client.get('/api/stats', headers=headers).json()
-        assert stats['training_platforms']['total'] >= 1
-        assert stats['training_platforms']['in_stock'] >= 1
+        assert stats['by_model']['实训台']['total'] >= 1
+        assert stats['by_model']['实训台']['in_stock'] >= 1
         migrated = client.post(f'/api/robots/{robot_id}/migrate', headers=headers,
             json={'destination_department': '其他部门', 'destination_holder': '李四', 'reason': '项目迁移'})
         assert migrated.status_code == 200
@@ -178,7 +179,7 @@ def test_training_platform_identity_is_normalized_and_survives_editing():
         robot = created.json()
         assert robot['model'] == '实训台'
         assert robot['device_branch'] == 'training_platform'
-        assert client.get('/api/stats', headers=headers).json()['training_platforms']['total'] >= 1
+        assert client.get('/api/stats', headers=headers).json()['by_model']['实训台']['total'] >= 1
 
         edited = client.put(f"/api/robots/{robot['id']}", headers=headers, json={
             'asset_code': robot['asset_code'], 'model': 'R1',
@@ -201,3 +202,53 @@ def test_training_platform_identity_is_normalized_and_survives_editing():
         })
         assert legacy_identity.status_code == 200
         assert legacy_identity.json()['device_branch'] == 'training_platform'
+
+
+def test_regular_user_only_sees_owned_devices_and_logs():
+    with TestClient(app) as client:
+        admin_headers = auth(client)
+        user = client.post('/api/users', headers=admin_headers, json={
+            'name': '持有人甲', 'phone': '13700000001', 'password': 'password1', 'is_admin': 0,
+        })
+        assert user.status_code == 200, user.text
+        mine = client.post('/api/robots', headers=admin_headers, json={
+            'asset_code': 'OWNED-001', 'model': 'G1', 'holder': '持有人甲', 'owner_name': '持有人甲',
+        }).json()
+        other = client.post('/api/robots', headers=admin_headers, json={
+            'asset_code': 'OTHER-001', 'model': 'R1', 'holder': '其他人', 'owner_name': '其他人',
+        }).json()
+        login = client.post('/api/auth/login', json={'phone': '13700000001', 'password': 'password1'})
+        user_headers = {'Authorization': f"Bearer {login.json()['access_token']}"}
+        visible = client.get('/api/robots', headers=user_headers).json()
+        assert [r['id'] for r in visible] == [mine['id']]
+        assert client.get(f"/api/robots/{other['id']}", headers=user_headers).status_code == 404
+        assert client.get('/api/stats', headers=user_headers).json()['total'] == 1
+        assert all(row['robot_id'] == mine['id'] for row in client.get('/api/logs', headers=user_headers).json()['items'])
+        assert client.get('/api/holders', headers=user_headers).json() == ['持有人甲']
+
+
+def test_inventory_edit_delete_and_auto_archive_at_zero():
+    with TestClient(app) as client:
+        headers = auth(client)
+        created = client.post('/api/inventory/items', headers=headers, json={
+            'category': '遥控器', 'model': 'RC-ZERO', 'unit': '个', 'initial_quantity': 1,
+            'asset_code': 'RC-001', 'status': '在库',
+        })
+        item_id = created.json()['id']
+        edited = client.put(f'/api/inventory/items/{item_id}', headers=headers, json={
+            'category': '遥控器', 'subtype': '', 'model': 'RC-ZERO', 'asset_code': 'RC-001',
+            'status': '维修中', 'unit': '个', 'location': '维修柜', 'owner_department': '',
+            'owner_name': '', 'remark': '待检修',
+        })
+        assert edited.status_code == 200, edited.text
+        assert edited.json()['status'] == '维修中'
+        emptied = client.post(f'/api/inventory/items/{item_id}/action', headers=headers, json={
+            'action': 'scrap', 'quantity': 1, 'note': '报废清零',
+        })
+        assert emptied.status_code == 200
+        assert all(item['id'] != item_id for item in client.get('/api/inventory/items', headers=headers).json())
+
+        deletable = client.post('/api/inventory/items', headers=headers, json={
+            'category': '拓展坞', 'model': 'DOCK-DELETE', 'initial_quantity': 2,
+        }).json()
+        assert client.delete(f"/api/inventory/items/{deletable['id']}", headers=headers).status_code == 200

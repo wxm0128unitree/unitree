@@ -1,13 +1,12 @@
 import { useState, useEffect } from 'react'
 
-const DEFAULT_MODELS = ['G1', 'R1', 'Go2', 'A2', '其他']
+const DEFAULT_MODELS = ['G1', 'R1', 'Go2', 'A2', '实训台', '其他']
 const DEFAULT_STATUSES = ['在库', '借出', '维修中']
 
 export default function AddRobotModal({ onClose, onSubmit, knownModels = [] }) {
   const [assetCode, setAssetCode] = useState('')
-  const robotModels = knownModels.filter(m => m && m !== '实训台')
+  const robotModels = knownModels.filter(Boolean)
   const [model, setModel] = useState(robotModels[0] || 'G1')
-  const [deviceBranch, setDeviceBranch] = useState('standard_robot')
   const [ownerDepartment, setOwnerDepartment] = useState('')
   const [ownerName, setOwnerName] = useState('')
   const [status, setStatus] = useState('在库')
@@ -34,7 +33,7 @@ export default function AddRobotModal({ onClose, onSubmit, knownModels = [] }) {
     localStorage.setItem('customStatusesList', JSON.stringify(customStatuses))
   }, [customStatuses])
 
-  const allModels = Array.from(new Set([...DEFAULT_MODELS, ...knownModels, ...customModels])).filter(m => m !== '实训台')
+  const allModels = Array.from(new Set([...DEFAULT_MODELS, ...knownModels, ...customModels]))
   const allStatuses = Array.from(new Set([...DEFAULT_STATUSES, ...customStatuses]))
 
   const addNewModel = () => {
@@ -55,8 +54,8 @@ export default function AddRobotModal({ onClose, onSubmit, knownModels = [] }) {
     }
     onSubmit({
       asset_code: assetCode.trim(),
-      model: deviceBranch === 'training_platform' ? '实训台' : model,
-      device_branch: deviceBranch,
+      model,
+      device_branch: model === '实训台' ? 'training_platform' : 'standard_robot',
       platform_type: '',
       holder: ownerName.trim(),
       owner_department: ownerDepartment.trim(),
@@ -70,8 +69,6 @@ export default function AddRobotModal({ onClose, onSubmit, knownModels = [] }) {
     <div className="modal-mask" onClick={onClose}>
       <div className="modal" onClick={e => e.stopPropagation()}>
         <h3>新增设备</h3>
-        <div className="field"><label>设备分支</label><div className="segmented"><button className={deviceBranch==='standard_robot'?'active':''} onClick={()=>setDeviceBranch('standard_robot')}>成品机器人</button><button className={deviceBranch==='training_platform'?'active':''} onClick={()=>setDeviceBranch('training_platform')}>实训台</button></div></div>
-
         <div className="field">
           <label>资产编号 *</label>
           <input
@@ -83,7 +80,7 @@ export default function AddRobotModal({ onClose, onSubmit, knownModels = [] }) {
           />
         </div>
 
-        {deviceBranch === 'standard_robot' && <div className="field">
+        <div className="field">
           <label>型号</label>
           <select value={model} onChange={e => setModel(e.target.value)} style={{
             width: '100%', padding: '10px 12px', border: '1px solid var(--border)', borderRadius: 8
@@ -112,7 +109,7 @@ export default function AddRobotModal({ onClose, onSubmit, knownModels = [] }) {
               color: '#1677ff', border: '1px dashed #1677ff', borderRadius: 6, cursor: 'pointer', fontSize: 13
             }}>+ 新增型号</button>
           )}
-        </div>}
+        </div>
 
         <div className="field">
           <label>资产归属部门</label>
@@ -123,10 +120,10 @@ export default function AddRobotModal({ onClose, onSubmit, knownModels = [] }) {
             placeholder="如：研发部"
           />
         </div>
-        {deviceBranch === 'standard_robot' && <div className="field">
+        <div className="field">
           <label>资产负责人</label>
           <input type="text" value={ownerName} onChange={e => setOwnerName(e.target.value)} placeholder="如：张三" />
-        </div>}
+        </div>
 
         <div className="field">
           <label>初始状态</label>

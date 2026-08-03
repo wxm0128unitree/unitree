@@ -49,9 +49,12 @@ def list_robots(
     keyword: Optional[str] = None,
     holder: Optional[str] = None,
     include_archived: bool = False,
+    visible_to: Optional[str] = None,
 ) -> List[models.Robot]:
     """列出设备，支持筛选"""
     q = db.query(models.Robot)
+    if visible_to:
+        q = q.filter(or_(models.Robot.holder == visible_to, models.Robot.owner_name == visible_to))
     if not include_archived:
         q = q.filter(models.Robot.is_archived == 0, models.Robot.lifecycle_status == "active")
     if model and model != "全部":
@@ -59,7 +62,8 @@ def list_robots(
     if status and status != "全部":
         q = q.filter(models.Robot.status == status)
     if holder and holder != "全部":
-        q = q.filter(models.Robot.holder == holder)
+        like = f"%{holder.strip()}%"
+        q = q.filter(or_(models.Robot.holder.like(like), models.Robot.owner_name.like(like), models.Robot.borrower.like(like)))
     if keyword:
         like = f"%{keyword}%"
         q = q.filter(
@@ -166,28 +170,25 @@ def _infer_action(before: str, after: str) -> str:
     return "状态变更"
 
 
-def get_stats(db: Session) -> dict:
+def get_stats(db: Session, visible_to: Optional[str] = None) -> dict:
     """首页统计：总数量、各状态数量"""
     active = (models.Robot.is_archived == 0) & (models.Robot.lifecycle_status == "active")
-    total = db.query(models.Robot).filter(active).count()
-    in_stock = db.query(models.Robot).filter(active, models.Robot.status == "在库").count()
-    borrowed = db.query(models.Robot).filter(active, models.Robot.status == "借出").count()
-    in_repair = db.query(models.Robot).filter(active, models.Robot.status == "维修中").count()
-    rows = db.query(models.Robot).filter(active).all()
+    q = db.query(models.Robot).filter(active)
+    if visible_to:
+        q = q.filter(or_(models.Robot.holder == visible_to, models.Robot.owner_name == visible_to))
+    rows = q.all()
+    total = len(rows)
+    in_stock = sum(r.status == "在库" for r in rows)
+    borrowed = sum(r.status == "借出" for r in rows)
+    in_repair = sum(r.status == "维修中" for r in rows)
     by_model = {}
     training = {"total": 0, "in_stock": 0, "borrowed": 0, "in_repair": 0}
     for robot in rows:
-        if robot.device_branch == "training_platform" or robot.model == "实训台":
-            training["total"] += 1
-            if robot.status == "在库": training["in_stock"] += 1
-            elif robot.status == "借出": training["borrowed"] += 1
-            elif robot.status == "维修中": training["in_repair"] += 1
-        else:
-            entry = by_model.setdefault(robot.model, {"total": 0, "in_stock": 0, "borrowed": 0, "in_repair": 0})
-            entry["total"] += 1
-            if robot.status == "在库": entry["in_stock"] += 1
-            elif robot.status == "借出": entry["borrowed"] += 1
-            elif robot.status == "维修中": entry["in_repair"] += 1
+        entry = by_model.setdefault(robot.model, {"total": 0, "in_stock": 0, "borrowed": 0, "in_repair": 0})
+        entry["total"] += 1
+        if robot.status == "在库": entry["in_stock"] += 1
+        elif robot.status == "借出": entry["borrowed"] += 1
+        elif robot.status == "维修中": entry["in_repair"] += 1
     return {"total": total, "in_stock": in_stock, "borrowed": borrowed, "in_repair": in_repair,
             "by_model": by_model, "training_platforms": training}
 
@@ -196,10 +197,12 @@ def list_logs(
     db: Session, robot_id: Optional[int] = None, operator: Optional[str] = None,
     action: Optional[str] = None, date_from: Optional[datetime] = None,
     date_to: Optional[datetime] = None, keyword: Optional[str] = None,
-    page: int = 1, page_size: int = 50,
+    page: int = 1, page_size: int = 50, visible_to: Optional[str] = None,
 ):
     """查询操作日志并返回分页结果。"""
     q = db.query(models.OperationLog)
+    if visible_to:
+        q = q.join(models.Robot).filter(or_(models.Robot.holder == visible_to, models.Robot.owner_name == visible_to))
     if robot_id:
         q = q.filter(models.OperationLog.robot_id == robot_id)
     if operator:
@@ -338,6 +341,28 @@ def create_inventory_item(db: Session, payload: schemas.InventoryItemCreate, ope
     db.commit(); db.refresh(item); return item
 
 
+def edit_inventory_item(db: Session, item_id: int, payload: schemas.InventoryItemEdit):
+    item = db.query(models.InventoryItem).filter(models.InventoryItem.id == item_id, models.InventoryItem.is_archived == 0).first()
+    if not item: raise HTTPException(status_code=404, detail="库存项目不存在")
+    duplicate = db.query(models.InventoryItem).filter(
+        models.InventoryItem.category == payload.category.strip(), models.InventoryItem.subtype == payload.subtype.strip(),
+        models.InventoryItem.model == payload.model.strip(), models.InventoryItem.id != item_id,
+        models.InventoryItem.is_archived == 0).first()
+    if duplicate: raise HTTPException(status_code=400, detail="相同分类、子类型和型号的库存项目已存在")
+    for field, value in payload.model_dump().items():
+        setattr(item, field, value.strip() if isinstance(value, str) else value)
+    db.commit(); db.refresh(item); return item
+
+
+def delete_inventory_item(db: Session, item_id: int):
+    item = db.query(models.InventoryItem).filter(models.InventoryItem.id == item_id, models.InventoryItem.is_archived == 0).first()
+    if not item: raise HTTPException(status_code=404, detail="库存项目不存在")
+    if item.loaned_quantity > 0: raise HTTPException(status_code=400, detail="仍有配件借出，归还后才能删除")
+    item.is_archived = 1
+    db.commit()
+    return {"ok": True}
+
+
 def list_inventory_items(db: Session, category: Optional[str] = None):
     q = db.query(models.InventoryItem).filter(models.InventoryItem.is_archived == 0)
     if category: q = q.filter(models.InventoryItem.category == category)
@@ -370,7 +395,10 @@ def inventory_action(db: Session, item_id: int, payload: schemas.InventoryAction
         after_available=item.available_quantity, borrower=payload.borrower.strip(), purpose=payload.purpose.strip(),
         destination_department=payload.destination_department.strip(), destination_holder=payload.destination_holder.strip(),
         expected_return_at=payload.expected_return_at, operator=operator, note=payload.note.strip())
-    db.add(tx); db.commit(); db.refresh(item); return item
+    db.add(tx)
+    if item.total_quantity == 0 and item.loaned_quantity == 0:
+        item.is_archived = 1
+    db.commit(); db.refresh(item); return item
 
 
 def inventory_stats(db: Session):

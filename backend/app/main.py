@@ -188,6 +188,16 @@ def api_me(current_user: models.User = Depends(get_current_user)):
 
 # ========== 设备 API ==========
 
+def _user_can_access_robot(user: models.User, robot: models.Robot) -> bool:
+    return user.is_admin == 1 or user.name in {robot.holder, robot.owner_name}
+
+
+def _require_robot_access(db: Session, robot_id: int, user: models.User) -> models.Robot:
+    robot = db.query(models.Robot).filter(models.Robot.id == robot_id).first()
+    if not robot or not _user_can_access_robot(user, robot):
+        raise HTTPException(status_code=404, detail="设备不存在")
+    return robot
+
 @app.get("/api/robots", response_model=List[schemas.RobotOut], tags=["\u8bbe\u5907"])
 def api_list_robots(
     model: Optional[str] = Query(None),
@@ -201,7 +211,19 @@ def api_list_robots(
     if include_archived and current_user.is_admin != 1:
         raise HTTPException(status_code=403, detail="只有管理员可以查看归档设备")
     return crud.list_robots(db, model=model, status=status, keyword=keyword, holder=holder,
-                            include_archived=include_archived)
+                            include_archived=include_archived,
+                            visible_to=None if current_user.is_admin == 1 else current_user.name)
+
+
+@app.get("/api/holders", response_model=List[str], tags=["设备"])
+def api_list_holders(db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    if current_user.is_admin != 1:
+        return [current_user.name]
+    values = set()
+    for holder, owner, borrower in db.query(models.Robot.holder, models.Robot.owner_name, models.Robot.borrower).all():
+        values.update(x.strip() for x in (holder, owner, borrower) if x and x.strip())
+    values.update(x[0].strip() for x in db.query(models.User.name).filter(models.User.is_active == 1).all() if x[0].strip())
+    return sorted(values)
 
 
 @app.post("/api/robots", response_model=schemas.RobotOut, tags=["\u8bbe\u5907"])
@@ -218,9 +240,7 @@ def api_get_robot(
     robot_id: int, db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    r = db.query(models.Robot).filter(models.Robot.id == robot_id).first()
-    if not r:
-        raise HTTPException(status_code=404, detail="\u8bbe\u5907\u4e0d\u5b58\u5728")
+    r = _require_robot_access(db, robot_id, current_user)
     if r.is_archived and current_user.is_admin != 1:
         raise HTTPException(status_code=404, detail="设备不存在")
     return r
@@ -231,6 +251,7 @@ def api_edit_robot(
     robot_id: int, payload: schemas.RobotEdit, db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
+    _require_robot_access(db, robot_id, current_user)
     return crud.edit_robot(db, robot_id, payload, current_user.name)
 
 
@@ -241,6 +262,7 @@ def api_update_status(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
+    _require_robot_access(db, robot_id, current_user)
     return crud.update_robot_status(
         db, robot_id, payload, operator=current_user.name,
     )
@@ -281,6 +303,7 @@ def api_inventory_robot(
     robot_id: int, payload: schemas.InventoryUpdate, db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
+    _require_robot_access(db, robot_id, current_user)
     return crud.inventory_robot(db, robot_id, payload, current_user.name)
 
 
@@ -290,7 +313,7 @@ def api_inventory_robot(
 def api_stats(
     db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user),
 ):
-    return crud.get_stats(db)
+    return crud.get_stats(db, visible_to=None if current_user.is_admin == 1 else current_user.name)
 
 
 @app.get("/api/logs", response_model=schemas.LogPage, tags=["\u65e5\u5fd7"])
@@ -307,7 +330,8 @@ def api_logs(
     current_user: models.User = Depends(get_current_user),
 ):
     items, total = crud.list_logs(db, robot_id=robot_id, operator=operator, action=action,
-        date_from=date_from, date_to=date_to, keyword=keyword, page=page, page_size=page_size)
+        date_from=date_from, date_to=date_to, keyword=keyword, page=page, page_size=page_size,
+        visible_to=None if current_user.is_admin == 1 else current_user.name)
     return {"items": items, "total": total, "page": page, "page_size": page_size}
 
 
@@ -318,7 +342,8 @@ def api_export_robots(
 ):
     if include_archived and current_user.is_admin != 1:
         raise HTTPException(status_code=403, detail="只有管理员可以导出归档设备")
-    robots = crud.list_robots(db, include_archived=include_archived)
+    robots = crud.list_robots(db, include_archived=include_archived,
+        visible_to=None if current_user.is_admin == 1 else current_user.name)
     output = io.StringIO()
     writer = csv.writer(output)
     writer.writerow(["资产编号", "型号", "状态", "归属部门", "资产负责人", "当前借用人", "当前位置",
@@ -336,7 +361,8 @@ def api_export_robots(
 def api_export_logs(
     db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user),
 ):
-    items, _ = crud.list_logs(db, page=1, page_size=10000)
+    items, _ = crud.list_logs(db, page=1, page_size=10000,
+        visible_to=None if current_user.is_admin == 1 else current_user.name)
     output = io.StringIO()
     writer = csv.writer(output)
     writer.writerow(["时间", "设备ID", "操作人", "操作", "原状态", "新状态", "原位置", "新位置", "备注"])
@@ -360,6 +386,18 @@ def api_inventory_items(category: Optional[str] = Query(None), db: Session = Dep
 def api_create_inventory_item(payload: schemas.InventoryItemCreate, db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)):
     return crud.create_inventory_item(db, payload, current_user.name)
+
+
+@app.put("/api/inventory/items/{item_id}", response_model=schemas.InventoryItemOut, tags=["数量库存"])
+def api_edit_inventory_item(item_id: int, payload: schemas.InventoryItemEdit, db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_admin)):
+    return crud.edit_inventory_item(db, item_id, payload)
+
+
+@app.delete("/api/inventory/items/{item_id}", tags=["数量库存"])
+def api_delete_inventory_item(item_id: int, db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_admin)):
+    return crud.delete_inventory_item(db, item_id)
 
 
 @app.post("/api/inventory/items/{item_id}/action", response_model=schemas.InventoryItemOut, tags=["数量库存"])

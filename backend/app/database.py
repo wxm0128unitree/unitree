@@ -121,6 +121,10 @@ def _migrate_existing_database():
             "is_active": "INTEGER NOT NULL DEFAULT 1",
             "last_login_at": "TIMESTAMP NULL",
         },
+        "inventory_items": {
+            "asset_code": "VARCHAR(128) DEFAULT ''",
+            "status": "VARCHAR(16) NOT NULL DEFAULT '在库'",
+        },
     }
     tables = set(inspect(engine).get_table_names())
     for table, columns in migrations.items():

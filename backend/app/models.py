@@ -92,6 +92,8 @@ class InventoryItem(Base):
     category = Column(String(32), nullable=False, index=True)
     subtype = Column(String(32), default="", index=True)
     model = Column(String(64), nullable=False, index=True)
+    asset_code = Column(String(128), default="", index=True)
+    status = Column(String(16), nullable=False, default="在库", index=True)
     unit = Column(String(16), nullable=False, default="个")
     total_quantity = Column(Integer, nullable=False, default=0)
     available_quantity = Column(Integer, nullable=False, default=0)

@@ -110,6 +110,8 @@ class InventoryItemCreate(BaseModel):
     category: str = Field(..., min_length=1, max_length=32)
     subtype: str = Field(default="", max_length=32)
     model: str = Field(..., min_length=1, max_length=64)
+    asset_code: str = Field(default="", max_length=128)
+    status: str = Field(default="在库", min_length=1, max_length=16)
     unit: str = Field(default="个", max_length=16)
     initial_quantity: int = Field(default=0, ge=0)
     location: str = Field(default="", max_length=128)
@@ -123,6 +125,8 @@ class InventoryItemOut(BaseModel):
     category: str
     subtype: str
     model: str
+    asset_code: str
+    status: str
     unit: str
     total_quantity: int
     available_quantity: int
@@ -138,6 +142,19 @@ class InventoryItemOut(BaseModel):
     @field_serializer("created_at", "updated_at")
     def serialize_utc_times(self, value: datetime): return _as_utc(value)
     class Config: from_attributes = True
+
+
+class InventoryItemEdit(BaseModel):
+    category: str = Field(..., min_length=1, max_length=32)
+    subtype: str = Field(default="", max_length=32)
+    model: str = Field(..., min_length=1, max_length=64)
+    asset_code: str = Field(default="", max_length=128)
+    status: str = Field(default="在库", min_length=1, max_length=16)
+    unit: str = Field(default="个", max_length=16)
+    location: str = Field(default="", max_length=128)
+    owner_department: str = Field(default="", max_length=64)
+    owner_name: str = Field(default="", max_length=32)
+    remark: str = Field(default="", max_length=2000)
 
 
 class InventoryAction(BaseModel):

@@ -818,6 +818,11 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 .inventory-grid { gap:16px; }
 .inventory-card { padding:20px; border-color:#dfe6f1; border-radius:19px; box-shadow:var(--shadow); transition:.2s; }
 .inventory-card:hover { transform:translateY(-3px); box-shadow:var(--shadow-hover); }
+.inventory-status { margin-left:auto; padding:4px 8px; border-radius:999px; background:#eef5ff; color:#3566a8; font-size:11px; font-weight:700; }
+.inventory-status.status-维修中 { background:#fff5e6; color:#ad6800; }
+.inventory-status.status-停用 { background:#f1f3f5; color:#6b7280; }
+.inventory-card-head .inventory-status + .unit-pill { margin-left:0; }
+.inventory-actions { grid-template-columns:repeat(6,1fr); }
 .inventory-card-head .asset-icon { width:46px; height:46px; border:1px solid #dfe8f7; border-radius:14px; }
 .category-label { letter-spacing:.08em; }
 .inventory-numbers div { padding:12px 8px; background:#f5f7fb; border:1px solid #edf0f5; border-radius:11px; }
