@@ -3,12 +3,14 @@ import { useState, useEffect } from 'react'
 const DEFAULT_MODELS = ['G1', 'R1', 'Go2', 'A2', '实训台', '其他']
 const DEFAULT_STATUSES = ['在库', '借出', '维修中']
 
-export default function AddRobotModal({ onClose, onSubmit, knownModels = [] }) {
+export default function AddRobotModal({ onClose, onSubmit, knownModels = [], holders = [], user }) {
   const [assetCode, setAssetCode] = useState('')
   const robotModels = knownModels.filter(Boolean)
   const [model, setModel] = useState(robotModels[0] || 'G1')
+  const [deviceType, setDeviceType] = useState('standard_robot')
   const [ownerDepartment, setOwnerDepartment] = useState('')
-  const [ownerName, setOwnerName] = useState('')
+  const [ownerName, setOwnerName] = useState(user?.is_admin === 1 ? '' : user?.name || '')
+  const [holder, setHolder] = useState(user?.name || '')
   const [status, setStatus] = useState('在库')
   const [location, setLocation] = useState('')
 
@@ -20,21 +22,11 @@ export default function AddRobotModal({ onClose, onSubmit, knownModels = [] }) {
   const [addingModel, setAddingModel] = useState(false)
   const [newModel, setNewModel] = useState('')
 
-  // 自定义状态
-  const [customStatuses, setCustomStatuses] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('customStatusesList') || '[]') }
-    catch { return [] }
-  })
-
   useEffect(() => {
     localStorage.setItem('customModelsList', JSON.stringify(customModels))
   }, [customModels])
-  useEffect(() => {
-    localStorage.setItem('customStatusesList', JSON.stringify(customStatuses))
-  }, [customStatuses])
 
   const allModels = Array.from(new Set([...DEFAULT_MODELS, ...knownModels, ...customModels]))
-  const allStatuses = Array.from(new Set([...DEFAULT_STATUSES, ...customStatuses]))
 
   const addNewModel = () => {
     const v = newModel.trim()
@@ -52,14 +44,16 @@ export default function AddRobotModal({ onClose, onSubmit, knownModels = [] }) {
       alert('请填写资产编号')
       return
     }
+    if(!ownerName.trim()||!holder.trim()){alert('负责人和持有人不能为空');return}
     onSubmit({
       asset_code: assetCode.trim(),
-      model,
-      device_branch: model === '实训台' ? 'training_platform' : 'standard_robot',
+      model: deviceType === 'training_platform' ? '实训台' : model,
+      device_branch: deviceType,
       platform_type: '',
-      holder: ownerName.trim(),
+      holder: holder.trim(),
       owner_department: ownerDepartment.trim(),
       owner_name: ownerName.trim(),
+      borrower: status === '借出' ? holder.trim() : '',
       status,
       location: location.trim(),
     })
@@ -81,6 +75,11 @@ export default function AddRobotModal({ onClose, onSubmit, knownModels = [] }) {
         </div>
 
         <div className="field">
+          <label>设备类型</label>
+          <select value={deviceType} onChange={e=>setDeviceType(e.target.value)}><option value="standard_robot">机器人</option><option value="training_platform">实训台</option></select>
+        </div>
+
+        {deviceType === 'standard_robot' && <div className="field">
           <label>型号</label>
           <select value={model} onChange={e => setModel(e.target.value)} style={{
             width: '100%', padding: '10px 12px', border: '1px solid var(--border)', borderRadius: 8
@@ -109,7 +108,7 @@ export default function AddRobotModal({ onClose, onSubmit, knownModels = [] }) {
               color: '#1677ff', border: '1px dashed #1677ff', borderRadius: 6, cursor: 'pointer', fontSize: 13
             }}>+ 新增型号</button>
           )}
-        </div>
+        </div>}
 
         <div className="field">
           <label>资产归属部门</label>
@@ -122,15 +121,17 @@ export default function AddRobotModal({ onClose, onSubmit, knownModels = [] }) {
         </div>
         <div className="field">
           <label>资产负责人</label>
-          <input type="text" value={ownerName} onChange={e => setOwnerName(e.target.value)} placeholder="如：张三" />
+          <input type="text" list="add-holder-options" disabled={user?.is_admin!==1} value={ownerName} onChange={e => setOwnerName(e.target.value)} placeholder="如：张三" />
+          <datalist id="add-holder-options">{holders.filter(h=>h.phone).map(h=><option key={h.phone} value={h.name}>{[h.phone,h.department].filter(Boolean).join(' · ')}</option>)}</datalist>
         </div>
+        <div className="field"><label>当前持有人 *</label><input list="add-current-holder-options" value={holder} onChange={e=>setHolder(e.target.value)} placeholder="当前实际保管设备的人"/><datalist id="add-current-holder-options">{holders.map(h=><option key={h.phone||h.name} value={h.name}>{[h.phone,h.department].filter(Boolean).join(' · ')}</option>)}</datalist></div>
 
         <div className="field">
           <label>初始状态</label>
           <select value={status} onChange={e => setStatus(e.target.value)} style={{
             width: '100%', padding: '10px 12px', border: '1px solid var(--border)', borderRadius: 8
           }}>
-            {allStatuses.map(s => <option key={s} value={s}>{s}</option>)}
+            {DEFAULT_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
           </select>
         </div>
 

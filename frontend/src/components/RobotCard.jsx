@@ -1,6 +1,6 @@
 import { formatShanghaiDate } from '../utils/datetime'
 
-export default function RobotCard({ robot, onClick, onDelete, onEdit, onInventory, onRestore, onMigrate, onUndoMigration }) {
+export default function RobotCard({ robot, onClick, onDelete, onEdit, onInventory, onRestore, onMigrate, onUndoMigration, isAdmin }) {
   const statusIcon = {
     '在库': '🟢',
     '借出': '🔵',
@@ -16,8 +16,9 @@ export default function RobotCard({ robot, onClick, onDelete, onEdit, onInventor
       </div>
       <div className="holder">
         <span className="holder-icon">👤</span>
-        <span className="holder-text">{[robot.owner_department, robot.owner_name || robot.holder].filter(Boolean).join(' / ') || '未指定归属'}</span>
+        <span className="holder-text">负责人：{[robot.owner_department, robot.owner_name].filter(Boolean).join(' / ') || '未指定'}</span>
       </div>
+      <div className="meta-line">持有人：{robot.holder || '未指定'}</div>
       <div className={`status status-${robot.status}`}>
         {statusIcon[robot.status] || '⚪'} {robot.status}
       </div>
@@ -27,8 +28,8 @@ export default function RobotCard({ robot, onClick, onDelete, onEdit, onInventor
       {robot.borrower && <div className="meta-line">借用人：{robot.borrower}{robot.expected_return_at ? ` · 预计 ${new Date(robot.expected_return_at).toLocaleDateString('zh-CN')} 归还` : ''}</div>}
       {robot.last_inventory_at && <div className="meta-line">最近盘点：{formatShanghaiDate(robot.last_inventory_at)} · {robot.last_inventory_by}</div>}
       <div className="actions" onClick={e => e.stopPropagation()}>
-        {robot.lifecycle_status === 'migrated' ? <button onClick={onUndoMigration}>撤销迁移</button> : robot.is_archived ? <button onClick={onRestore}>恢复</button> : <>
-          <button onClick={onClick}>状态</button><button className="secondary" onClick={onEdit}>编辑</button><button className="secondary" onClick={onInventory}>盘点</button><button className="danger" onClick={onMigrate}>迁移</button><button className="muted-action" onClick={onDelete}>归档</button>
+        {robot.lifecycle_status === 'migrated' ? isAdmin && <button onClick={onUndoMigration}>撤销迁移</button> : robot.is_archived ? isAdmin && <button onClick={onRestore}>恢复</button> : <>
+          <button onClick={onClick}>状态</button><button className="secondary" onClick={onEdit}>编辑</button><button className="secondary" onClick={onInventory}>盘点</button>{isAdmin&&<><button className="danger" onClick={onMigrate}>迁移</button><button className="muted-action" onClick={onDelete}>归档</button></>}
         </>}
       </div>
     </div>

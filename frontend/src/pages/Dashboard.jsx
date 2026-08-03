@@ -15,6 +15,7 @@ export default function Dashboard({ user }) {
   const [robots, setRobots] = useState([])
   const [stats, setStats] = useState({ total: 0, in_stock: 0, borrowed: 0, in_repair: 0 })
   const [inventoryStats, setInventoryStats] = useState({ total: 0, available: 0, loaned: 0, categories: {} })
+  const [inventoryCategory, setInventoryCategory] = useState(null)
   const [holders, setHolders] = useState([])
   const [loading, setLoading] = useState(true)
   const [filters, setFilters] = useState({ model: '全部', status: '全部', holder: '全部', keyword: '' })
@@ -111,7 +112,6 @@ export default function Dashboard({ user }) {
   // 从已有数据中动态提取所有出现过的型号 / 状态 / 持有人
   const allModels = Array.from(new Set(robots.map(r => r.model).filter(Boolean)))
   const allStatuses = Array.from(new Set(robots.map(r => r.status).filter(Boolean)))
-  const allHolders = holders
   const primaryModels = ['G1', 'R1', 'Go2', 'A2', '实训台']
   const extraModels = Object.keys(stats.by_model || {}).filter(model => !primaryModels.includes(model)).sort()
   const modelTone = { G1: 'blue', R1: 'indigo', Go2: 'cyan', A2: 'slate' }
@@ -121,7 +121,7 @@ export default function Dashboard({ user }) {
       <div className="dashboard-switch" role="tablist">
         <button className={view==='overview'?'active':''} onClick={()=>setView('overview')}>总览</button>
         <button className={view==='robots'?'active':''} onClick={()=>setView('robots')}>设备管理</button>
-        <button className={view==='inventory'?'active':''} onClick={()=>setView('inventory')}>配件库存</button>
+        <button className={view==='inventory'?'active':''} onClick={()=>{setInventoryCategory(null);setView('inventory')}}>配件库存</button>
       </div>
       {view === 'overview' && <div className="overview-page">
         <div className="hero-summary"><div><span className="eyebrow">DEPARTMENT ASSETS</span><h2>部门资产一览</h2><p>机器人、实训台与配件库存集中管理，关键状态一目了然。</p></div><div className="hero-total"><span>当前资产总量</span><div><b>{stats.total + inventoryStats.total}</b><em>件</em></div><small>仅统计本部门在管资产</small></div></div>
@@ -129,9 +129,9 @@ export default function Dashboard({ user }) {
         <div className="asset-stat-grid">{[...primaryModels, ...extraModels].map(model=>{const s=stats.by_model?.[model]||{total:0,in_stock:0,borrowed:0,in_repair:0};return <button className={`asset-stat tone-${modelTone[model]||'blue'}`} key={model} onClick={()=>{setFilters(f=>({...f,model}));setView('robots')}}><span className="asset-accent"/><span className="asset-stat-top"><span className="asset-model-badge">{model}</span><span className="asset-kind">成品机器人</span></span><span className="asset-stat-value"><b>{s.total}</b><em>台</em></span><span className="asset-status-line"><i className="dot stock"/>在库 {s.in_stock}<i className="dot loan"/>借出 {s.borrowed}<i className="dot repair"/>维修 {s.in_repair}</span></button>})}
           </div>
         <div className="section-heading compact"><div><h2>配件库存</h2><p>大数字为部门当前总量。</p></div><button className="text-btn" onClick={()=>setView('inventory')}>管理库存 →</button></div>
-        <div className="category-stat-grid">{['Pico','夹爪','三指灵巧手','电池','遥控器','拓展坞'].map((name,i)=>{const icons=['🥽','🤏','🖐️','🔋','🎮','🔌'];const s=inventoryStats.categories?.[name]||{total:0,available:0,loaned:0};return <button key={name} className="category-stat" onClick={()=>setView('inventory')}><span className="asset-icon">{icons[i]}</span><span>{name}</span><b>{s.total}</b><small>库存 {s.available} · 借出 {s.loaned}</small></button>})}</div>
+        <div className="category-stat-grid">{['Pico','夹爪','三指灵巧手','电池','遥控器','拓展坞'].map((name,i)=>{const icons=['🥽','🤏','🖐️','🔋','🎮','🔌'];const s=inventoryStats.categories?.[name]||{total:0,available:0,loaned:0};return <button key={name} className="category-stat" onClick={()=>{setInventoryCategory(name);setView('inventory')}}><span className="asset-icon">{icons[i]}</span><span>{name}</span><b>{s.total}</b><small>库存 {s.available} · 借出 {s.loaned}</small></button>})}</div>
       </div>}
-      {view === 'inventory' && <Inventory onStats={setInventoryStats} user={user} />}
+      {view === 'inventory' && <Inventory category={inventoryCategory} onBack={()=>{setInventoryCategory(null);setView('overview')}} onStats={setInventoryStats} user={user} holders={holders} />}
       {view === 'robots' && <>
       {/* 统计卡片 */}
       <div className="stats">
@@ -164,16 +164,11 @@ export default function Dashboard({ user }) {
           value={filters.status}
           onChange={v => setFilters(f => ({ ...f, status: v }))}
           options={allStatuses}
-          storageKey="customStatuses"
-          placeholder="新状态，如 已发货 / 待验收"
         />
-        <FilterSelect
-          label="持有人"
-          value={filters.holder}
-          onChange={v => setFilters(f => ({ ...f, holder: v }))}
-          options={allHolders}
-          placeholder="搜索/添加持有人"
-        />
+        <input className="search" list="holder-options" placeholder="持有人姓名 / 账号 / 部门"
+          value={filters.holder === '全部' ? '' : filters.holder}
+          onChange={e => setFilters(f => ({ ...f, holder: e.target.value || '全部' }))} />
+        <datalist id="holder-options">{holders.map(h=><option key={h.phone||h.name} value={h.name}>{[h.phone,h.department].filter(Boolean).join(' · ')}</option>)}</datalist>
         <input
           className="search"
           placeholder="搜索资产编号 / 去向"
@@ -209,6 +204,7 @@ export default function Dashboard({ user }) {
               onRestore={() => handleRestore(r)}
               onMigrate={() => setMigratingRobot(r)}
               onUndoMigration={() => handleUndoMigration(r)}
+              isAdmin={user.is_admin === 1}
             />
           ))}
         </div>
@@ -227,9 +223,11 @@ export default function Dashboard({ user }) {
           onClose={() => setShowAdd(false)}
           onSubmit={handleAdd}
           knownModels={allModels}
+          holders={holders}
+          user={user}
         />
       )}
-      {editingRobot && <EditRobotModal robot={editingRobot} onClose={() => setEditingRobot(null)} onSubmit={handleEdit} />}
+      {editingRobot && <EditRobotModal robot={editingRobot} isAdmin={user.is_admin===1} holders={holders} onClose={() => setEditingRobot(null)} onSubmit={handleEdit} />}
       {inventoryRobot && <InventoryModal robot={inventoryRobot} onClose={() => setInventoryRobot(null)} onSubmit={handleInventory} />}
       {migratingRobot && <MigrationModal robot={migratingRobot} onClose={() => setMigratingRobot(null)} onSubmit={handleMigrate} />}
       </>}

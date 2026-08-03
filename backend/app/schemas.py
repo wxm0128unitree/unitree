@@ -49,6 +49,7 @@ class RobotUpdate(BaseModel):
     purpose: str = Field(default="", max_length=128)
     expected_return_at: Optional[datetime] = None
     repair_description: str = Field(default="", max_length=1000)
+    holder: str = Field(default="", max_length=32)
 
 
 class RobotEdit(BaseModel):
@@ -58,6 +59,7 @@ class RobotEdit(BaseModel):
     platform_type: Optional[str] = Field(default=None, max_length=32)
     owner_department: str = Field(default="", max_length=64)
     owner_name: str = Field(default="", max_length=32)
+    holder: str = Field(default="", max_length=32)
     location: str = Field(default="", max_length=128)
     remark: str = Field(default="", max_length=2000)
 
@@ -113,10 +115,11 @@ class InventoryItemCreate(BaseModel):
     asset_code: str = Field(default="", max_length=128)
     status: str = Field(default="在库", min_length=1, max_length=16)
     unit: str = Field(default="个", max_length=16)
-    initial_quantity: int = Field(default=0, ge=0)
+    initial_quantity: int = Field(default=1, ge=1)
     location: str = Field(default="", max_length=128)
     owner_department: str = Field(default="", max_length=64)
     owner_name: str = Field(default="", max_length=32)
+    holder: str = Field(default="", max_length=32)
     remark: str = Field(default="", max_length=2000)
 
 
@@ -134,6 +137,7 @@ class InventoryItemOut(BaseModel):
     location: str
     owner_department: str
     owner_name: str
+    holder: str
     remark: str
     is_archived: int
     created_at: datetime
@@ -154,7 +158,14 @@ class InventoryItemEdit(BaseModel):
     location: str = Field(default="", max_length=128)
     owner_department: str = Field(default="", max_length=64)
     owner_name: str = Field(default="", max_length=32)
+    holder: str = Field(default="", max_length=32)
     remark: str = Field(default="", max_length=2000)
+
+
+class HolderOption(BaseModel):
+    name: str
+    phone: str = ""
+    department: str = ""
 
 
 class InventoryAction(BaseModel):

@@ -101,6 +101,7 @@ class InventoryItem(Base):
     location = Column(String(128), default="")
     owner_department = Column(String(64), default="")
     owner_name = Column(String(32), default="")
+    holder = Column(String(32), default="", index=True)
     remark = Column(Text, default="")
     is_archived = Column(Integer, nullable=False, default=0, index=True)
     created_at = Column(DateTime, default=utc_now)

@@ -90,6 +90,7 @@ def init_db():
     Base.metadata.create_all(bind=engine, checkfirst=True)
     _migrate_existing_database()
     _normalize_legacy_training_platforms()
+    _normalize_legacy_ownership()
 
 
 def _migrate_existing_database():
@@ -124,6 +125,7 @@ def _migrate_existing_database():
         "inventory_items": {
             "asset_code": "VARCHAR(128) DEFAULT ''",
             "status": "VARCHAR(16) NOT NULL DEFAULT '在库'",
+            "holder": "VARCHAR(32) DEFAULT ''",
         },
     }
     tables = set(inspect(engine).get_table_names())
@@ -167,6 +169,20 @@ def _normalize_legacy_training_platforms():
             "UPDATE robots SET device_branch = 'training_platform' "
             "WHERE model = '实训台'"
         )
+
+
+def _normalize_legacy_ownership():
+    """旧数据没有独立持有人时，以负责人补齐，保证升级后字段闭环且不丢记录。"""
+    tables = set(inspect(engine).get_table_names())
+    with engine.begin() as conn:
+        if "robots" in tables:
+            conn.exec_driver_sql(
+                "UPDATE robots SET holder = owner_name WHERE (holder IS NULL OR holder = '') AND owner_name <> ''"
+            )
+        if "inventory_items" in tables:
+            conn.exec_driver_sql(
+                "UPDATE inventory_items SET holder = owner_name WHERE (holder IS NULL OR holder = '') AND owner_name <> ''"
+            )
 
 
 def single_process_bootstrap():

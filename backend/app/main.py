@@ -113,6 +113,20 @@ def api_bootstrap():
 
 # ========== 鉴权 API ==========
 
+def _ensure_unique_user_name(db: Session, name: str, exclude_user_id: Optional[int] = None):
+    q = db.query(models.User).filter(models.User.name == name.strip())
+    if exclude_user_id is not None:
+        q = q.filter(models.User.id != exclude_user_id)
+    if q.first():
+        raise HTTPException(status_code=400, detail="姓名已被其他账号使用；负责人权限要求账号姓名唯一")
+
+
+def _rename_owned_assets(db: Session, old_name: str, new_name: str):
+    db.query(models.Robot).filter(models.Robot.owner_name == old_name).update({models.Robot.owner_name: new_name})
+    db.query(models.InventoryItem).filter(models.InventoryItem.owner_name == old_name).update({models.InventoryItem.owner_name: new_name})
+    db.query(models.Robot).filter(models.Robot.holder == old_name).update({models.Robot.holder: new_name})
+    db.query(models.InventoryItem).filter(models.InventoryItem.holder == old_name).update({models.InventoryItem.holder: new_name})
+
 
 @app.post("/api/admin/init", tags=["\u7cfb\u7edf"])
 def api_admin_init(
@@ -146,6 +160,7 @@ def api_register(payload: schemas.UserCreate, db: Session = Depends(get_db)):
     existing = db.query(models.User).filter(models.User.phone == payload.phone).first()
     if existing:
         raise HTTPException(status_code=400, detail="\u8be5\u624b\u673a\u53f7\u5df2\u6ce8\u518c")
+    _ensure_unique_user_name(db, payload.name)
     user = models.User(
         name=payload.name,
         phone=payload.phone,
@@ -189,7 +204,7 @@ def api_me(current_user: models.User = Depends(get_current_user)):
 # ========== 设备 API ==========
 
 def _user_can_access_robot(user: models.User, robot: models.Robot) -> bool:
-    return user.is_admin == 1 or user.name in {robot.holder, robot.owner_name}
+    return user.is_admin == 1 or user.name == robot.owner_name
 
 
 def _require_robot_access(db: Session, robot_id: int, user: models.User) -> models.Robot:
@@ -215,15 +230,48 @@ def api_list_robots(
                             visible_to=None if current_user.is_admin == 1 else current_user.name)
 
 
-@app.get("/api/holders", response_model=List[str], tags=["设备"])
-def api_list_holders(db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+@app.get("/api/holders", response_model=List[schemas.HolderOption], tags=["设备"])
+def api_list_holders(keyword: Optional[str] = Query(None), db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)):
     if current_user.is_admin != 1:
-        return [current_user.name]
-    values = set()
-    for holder, owner, borrower in db.query(models.Robot.holder, models.Robot.owner_name, models.Robot.borrower).all():
-        values.update(x.strip() for x in (holder, owner, borrower) if x and x.strip())
-    values.update(x[0].strip() for x in db.query(models.User.name).filter(models.User.is_active == 1).all() if x[0].strip())
-    return sorted(values)
+        holder_names = {current_user.name}
+        holder_names.update(
+            x[0].strip() for x in db.query(models.Robot.holder)
+            .filter(models.Robot.owner_name == current_user.name).all()
+            if x[0] and x[0].strip()
+        )
+        holder_names.update(
+            x[0].strip() for x in db.query(models.InventoryItem.holder)
+            .filter(models.InventoryItem.owner_name == current_user.name).all()
+            if x[0] and x[0].strip()
+        )
+        rows = [{
+            "name": name,
+            "phone": current_user.phone if name == current_user.name else "",
+            "department": "" if name == current_user.name else "外部/无账号",
+        } for name in holder_names]
+        if keyword:
+            needle = keyword.strip().lower()
+            rows = [x for x in rows if needle in x["name"].lower() or needle in x["phone"].lower()
+                    or needle in x["department"].lower()]
+        return sorted(rows, key=lambda x: (x["name"], x["phone"]))
+    users = db.query(models.User).filter(models.User.is_active == 1).all()
+    departments = {}
+    for name, department in db.query(models.Robot.holder, models.Robot.owner_department).all():
+        if name and department: departments.setdefault(name.strip(), department.strip())
+    for name, department in db.query(models.InventoryItem.owner_name, models.InventoryItem.owner_department).all():
+        if name and department: departments.setdefault(name.strip(), department.strip())
+    rows = [{"name": u.name, "phone": u.phone, "department": departments.get(u.name, "")} for u in users]
+    known = {row["name"] for row in rows}
+    external = set()
+    external.update(x[0].strip() for x in db.query(models.Robot.holder).all() if x[0] and x[0].strip())
+    external.update(x[0].strip() for x in db.query(models.InventoryItem.holder).all() if x[0] and x[0].strip())
+    rows.extend({"name": name, "phone": "", "department": "外部/无账号"} for name in external if name not in known)
+    if keyword:
+        needle = keyword.strip().lower()
+        rows = [x for x in rows if needle in x["name"].lower() or needle in x["phone"].lower()
+                or needle in x["department"].lower()]
+    return sorted(rows, key=lambda x: (x["name"], x["phone"]))
 
 
 @app.post("/api/robots", response_model=schemas.RobotOut, tags=["\u8bbe\u5907"])
@@ -232,6 +280,10 @@ def api_create_robot(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
+    if current_user.is_admin != 1:
+        payload.owner_name = current_user.name
+        if not payload.holder.strip():
+            payload.holder = current_user.name
     return crud.create_robot(db, payload, operator=current_user.name)
 
 
@@ -252,7 +304,8 @@ def api_edit_robot(
     current_user: models.User = Depends(get_current_user),
 ):
     _require_robot_access(db, robot_id, current_user)
-    return crud.edit_robot(db, robot_id, payload, current_user.name)
+    return crud.edit_robot(db, robot_id, payload, current_user.name,
+                           allow_owner_change=current_user.is_admin == 1)
 
 
 @app.post("/api/robots/{robot_id}/status", response_model=schemas.RobotOut, tags=["\u8bbe\u5907"])
@@ -346,10 +399,10 @@ def api_export_robots(
         visible_to=None if current_user.is_admin == 1 else current_user.name)
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(["资产编号", "型号", "状态", "归属部门", "资产负责人", "当前借用人", "当前位置",
+    writer.writerow(["资产编号", "型号", "状态", "归属部门", "资产负责人", "当前持有人", "当前借用人", "当前位置",
                      "借用用途", "借出时间", "预计归还", "维修描述", "备注", "是否归档", "最近盘点时间", "盘点人"])
     for r in robots:
-        writer.writerow([r.asset_code, r.model, r.status, r.owner_department, r.owner_name, r.borrower,
+        writer.writerow([r.asset_code, r.model, r.status, r.owner_department, r.owner_name, r.holder, r.borrower,
             r.location, r.purpose, r.borrowed_at or "", r.expected_return_at or "", r.repair_description,
             r.remark, "是" if r.is_archived else "否", r.last_inventory_at or "", r.last_inventory_by])
     data = "\ufeff" + output.getvalue()
@@ -376,22 +429,37 @@ def api_export_logs(
 
 # ========== 数量库存 ============
 
+def _require_inventory_access(db: Session, item_id: int, user: models.User) -> models.InventoryItem:
+    item = db.query(models.InventoryItem).filter(
+        models.InventoryItem.id == item_id, models.InventoryItem.is_archived == 0).first()
+    if not item or (user.is_admin != 1 and item.owner_name != user.name):
+        raise HTTPException(status_code=404, detail="配件不存在")
+    return item
+
+
 @app.get("/api/inventory/items", response_model=List[schemas.InventoryItemOut], tags=["数量库存"])
-def api_inventory_items(category: Optional[str] = Query(None), db: Session = Depends(get_db),
+def api_inventory_items(category: Optional[str] = Query(None), status: Optional[str] = Query(None),
+    holder: Optional[str] = Query(None), keyword: Optional[str] = Query(None), db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)):
-    return crud.list_inventory_items(db, category)
+    return crud.list_inventory_items(db, category, status, holder, keyword,
+        visible_to=None if current_user.is_admin == 1 else current_user.name)
 
 
 @app.post("/api/inventory/items", response_model=schemas.InventoryItemOut, tags=["数量库存"])
 def api_create_inventory_item(payload: schemas.InventoryItemCreate, db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)):
+    if current_user.is_admin != 1:
+        payload.owner_name = current_user.name
+        if not payload.holder.strip():
+            payload.holder = current_user.name
     return crud.create_inventory_item(db, payload, current_user.name)
 
 
 @app.put("/api/inventory/items/{item_id}", response_model=schemas.InventoryItemOut, tags=["数量库存"])
 def api_edit_inventory_item(item_id: int, payload: schemas.InventoryItemEdit, db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_admin)):
-    return crud.edit_inventory_item(db, item_id, payload)
+    current_user: models.User = Depends(get_current_user)):
+    _require_inventory_access(db, item_id, current_user)
+    return crud.edit_inventory_item(db, item_id, payload, allow_owner_change=current_user.is_admin == 1)
 
 
 @app.delete("/api/inventory/items/{item_id}", tags=["数量库存"])
@@ -403,18 +471,22 @@ def api_delete_inventory_item(item_id: int, db: Session = Depends(get_db),
 @app.post("/api/inventory/items/{item_id}/action", response_model=schemas.InventoryItemOut, tags=["数量库存"])
 def api_inventory_action(item_id: int, payload: schemas.InventoryAction, db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)):
+    _require_inventory_access(db, item_id, current_user)
     return crud.inventory_action(db, item_id, payload, current_user.name)
 
 
 @app.get("/api/inventory/stats", tags=["数量库存"])
 def api_inventory_stats(db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    return crud.inventory_stats(db)
+    return crud.inventory_stats(db, visible_to=None if current_user.is_admin == 1 else current_user.name)
 
 
 @app.get("/api/inventory/transactions", response_model=List[schemas.InventoryTransactionOut], tags=["数量库存"])
 def api_inventory_transactions(limit: int = Query(200, ge=1, le=1000), db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)):
-    return db.query(models.InventoryTransaction).order_by(models.InventoryTransaction.created_at.desc()).limit(limit).all()
+    q = db.query(models.InventoryTransaction).join(models.InventoryItem)
+    if current_user.is_admin != 1:
+        q = q.filter(models.InventoryItem.owner_name == current_user.name)
+    return q.order_by(models.InventoryTransaction.created_at.desc()).limit(limit).all()
 
 
 # ========== 用户管理（管理员） ==========
@@ -427,7 +499,10 @@ def api_update_me(
 ):
     """修改当前登录用户的信息（名字或密码）"""
     if payload.name is not None:
-        current_user.name = payload.name.strip()
+        new_name = payload.name.strip()
+        _ensure_unique_user_name(db, new_name, current_user.id)
+        _rename_owned_assets(db, current_user.name, new_name)
+        current_user.name = new_name
     if payload.password is not None:
         current_user.password_hash = hash_password(payload.password)
     db.commit()
@@ -451,6 +526,7 @@ def api_create_user(
 ):
     if db.query(models.User).filter(models.User.phone == payload.phone).first():
         raise HTTPException(status_code=400, detail="该手机号已注册")
+    _ensure_unique_user_name(db, payload.name)
     user = models.User(name=payload.name, phone=payload.phone,
         password_hash=hash_password(payload.password), is_admin=payload.is_admin, is_active=1)
     db.add(user); db.commit(); db.refresh(user)
@@ -476,7 +552,11 @@ def api_admin_update_user(
         admins = db.query(models.User).filter(models.User.is_admin == 1, models.User.is_active == 1).count()
         if admins <= 1:
             raise HTTPException(status_code=400, detail="必须至少保留一名启用的管理员")
-    if payload.name is not None: user.name = payload.name.strip()
+    if payload.name is not None:
+        new_name = payload.name.strip()
+        _ensure_unique_user_name(db, new_name, user.id)
+        _rename_owned_assets(db, user.name, new_name)
+        user.name = new_name
     if payload.password is not None: user.password_hash = hash_password(payload.password)
     if payload.is_admin is not None: user.is_admin = payload.is_admin
     if payload.is_active is not None: user.is_active = payload.is_active

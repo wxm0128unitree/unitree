@@ -17,6 +17,8 @@ def get_robot_by_code(db: Session, asset_code: str) -> Optional[models.Robot]:
 
 VALID_DEVICE_BRANCHES = {"standard_robot", "training_platform"}
 VALID_PLATFORM_TYPES = {"humanoid", "quadruped"}
+VALID_STATUSES = {"在库", "借出", "维修中"}
+INDIVIDUAL_INVENTORY_CATEGORIES = {"电池", "遥控器"}
 
 
 def _normalize_robot_identity(data: dict) -> dict:
@@ -54,7 +56,7 @@ def list_robots(
     """列出设备，支持筛选"""
     q = db.query(models.Robot)
     if visible_to:
-        q = q.filter(or_(models.Robot.holder == visible_to, models.Robot.owner_name == visible_to))
+        q = q.filter(models.Robot.owner_name == visible_to)
     if not include_archived:
         q = q.filter(models.Robot.is_archived == 0, models.Robot.lifecycle_status == "active")
     if model and model != "全部":
@@ -84,8 +86,24 @@ def create_robot(db: Session, payload: schemas.RobotCreate, operator: str = "adm
         raise HTTPException(status_code=400, detail="资产编号不能为空")
     if get_robot_by_code(db, data["asset_code"]):
         raise HTTPException(status_code=400, detail=f"资产编号 {data['asset_code']} 已存在")
-    if payload.status and len(payload.status) > 32:
-        raise HTTPException(status_code=400, detail="状态长度不能超过 32 个字符")
+    data["owner_name"] = (data.get("owner_name") or "").strip()
+    data["holder"] = (data.get("holder") or "").strip()
+    if not data["owner_name"]:
+        raise HTTPException(status_code=400, detail="负责人不能为空")
+    if not data["holder"]:
+        raise HTTPException(status_code=400, detail="持有人不能为空")
+    if not db.query(models.User).filter(models.User.name == data["owner_name"], models.User.is_active == 1).first():
+        raise HTTPException(status_code=400, detail="负责人必须是启用的内部账号")
+    if data["status"] == "借出":
+        if not (data.get("borrower") or "").strip():
+            raise HTTPException(status_code=400, detail="借出设备必须填写借用人")
+        data["borrower"] = data["borrower"].strip()
+        data["holder"] = data["borrower"]
+    if data["status"] == "在库" and not db.query(models.User).filter(
+        models.User.name == data["holder"], models.User.is_active == 1).first():
+        raise HTTPException(status_code=400, detail="在库设备的持有人必须是内部人员")
+    if payload.status not in VALID_STATUSES:
+        raise HTTPException(status_code=400, detail="状态只能是在库、借出或维修中")
     robot = models.Robot(**data)
     db.add(robot)
     try:
@@ -115,16 +133,29 @@ def update_robot_status(
     if not robot:
         raise HTTPException(status_code=404, detail="设备不存在")
 
-    if not payload.status or not payload.status.strip():
-        raise HTTPException(status_code=400, detail="状态不能为空")
-    if len(payload.status) > 32:
-        raise HTTPException(status_code=400, detail="状态长度不能超过 32 个字符")
+    if payload.status.strip() not in VALID_STATUSES:
+        raise HTTPException(status_code=400, detail="状态只能是在库、借出或维修中")
 
     # 记录变更前状态
     before = {"status": robot.status, "location": robot.location}
 
     # 更新状态
-    robot.status = payload.status.strip()
+    new_status = payload.status.strip()
+    requested_holder = payload.holder.strip()
+    if new_status == "借出":
+        if not payload.borrower.strip():
+            raise HTTPException(status_code=400, detail="借出必须填写借用人")
+        new_holder = payload.borrower.strip()
+    elif new_status == "在库":
+        new_holder = requested_holder or (robot.owner_name if before["status"] == "借出" else robot.holder)
+        if not db.query(models.User).filter(models.User.name == new_holder, models.User.is_active == 1).first():
+            raise HTTPException(status_code=400, detail="在库设备的持有人必须是内部人员")
+    else:
+        new_holder = requested_holder or robot.holder
+    if not new_holder:
+        raise HTTPException(status_code=400, detail="持有人不能为空")
+    robot.status = new_status
+    robot.holder = new_holder
     robot.location = payload.location.strip() if payload.status != "在库" else ""
     robot.borrower = payload.borrower.strip() if payload.status == "借出" else ""
     robot.purpose = payload.purpose.strip() if payload.status == "借出" else ""
@@ -175,7 +206,7 @@ def get_stats(db: Session, visible_to: Optional[str] = None) -> dict:
     active = (models.Robot.is_archived == 0) & (models.Robot.lifecycle_status == "active")
     q = db.query(models.Robot).filter(active)
     if visible_to:
-        q = q.filter(or_(models.Robot.holder == visible_to, models.Robot.owner_name == visible_to))
+        q = q.filter(models.Robot.owner_name == visible_to)
     rows = q.all()
     total = len(rows)
     in_stock = sum(r.status == "在库" for r in rows)
@@ -202,7 +233,7 @@ def list_logs(
     """查询操作日志并返回分页结果。"""
     q = db.query(models.OperationLog)
     if visible_to:
-        q = q.join(models.Robot).filter(or_(models.Robot.holder == visible_to, models.Robot.owner_name == visible_to))
+        q = q.join(models.Robot).filter(models.Robot.owner_name == visible_to)
     if robot_id:
         q = q.filter(models.OperationLog.robot_id == robot_id)
     if operator:
@@ -249,7 +280,7 @@ def restore_robot(db: Session, robot_id: int, operator: str = "admin"):
     return robot
 
 
-def edit_robot(db: Session, robot_id: int, payload: schemas.RobotEdit, operator: str):
+def edit_robot(db: Session, robot_id: int, payload: schemas.RobotEdit, operator: str, allow_owner_change: bool = False):
     robot = db.query(models.Robot).filter(
         models.Robot.id == robot_id, models.Robot.is_archived == 0,
         models.Robot.lifecycle_status == "active",
@@ -266,7 +297,19 @@ def edit_robot(db: Session, robot_id: int, payload: schemas.RobotEdit, operator:
         "platform_type": payload.platform_type if payload.platform_type is not None else robot.platform_type,
     })
     changed = []
-    for field in ("asset_code", "model", "device_branch", "platform_type", "owner_department", "owner_name", "location", "remark"):
+    if not payload.holder.strip():
+        raise HTTPException(status_code=400, detail="持有人不能为空")
+    if robot.status == "借出" and robot.borrower and payload.holder.strip() != robot.borrower:
+        raise HTTPException(status_code=400, detail="借出状态下持有人必须与借用人一致")
+    if robot.status == "在库" and not db.query(models.User).filter(
+        models.User.name == payload.holder.strip(), models.User.is_active == 1).first():
+        raise HTTPException(status_code=400, detail="在库设备的持有人必须是内部人员")
+    fields = ["asset_code", "model", "device_branch", "platform_type", "holder", "location", "remark"]
+    if allow_owner_change:
+        if not db.query(models.User).filter(models.User.name == payload.owner_name.strip(), models.User.is_active == 1).first():
+            raise HTTPException(status_code=400, detail="负责人必须是启用的内部账号")
+        fields.extend(["owner_department", "owner_name"])
+    for field in fields:
         value = identity[field] if field in identity else getattr(payload, field).strip()
         if getattr(robot, field) != value:
             changed.append(field)
@@ -326,13 +369,62 @@ def undo_robot_migration(db: Session, robot_id: int, operator: str):
     db.commit(); db.refresh(robot); return robot
 
 
+def _inventory_item_query(db: Session, visible_to: Optional[str] = None):
+    q = db.query(models.InventoryItem).filter(models.InventoryItem.is_archived == 0)
+    return q.filter(models.InventoryItem.owner_name == visible_to) if visible_to else q
+
+
+def _validate_inventory_data(db: Session, data: dict, item_id: Optional[int] = None):
+    category = (data.get("category") or "").strip()
+    code = (data.get("asset_code") or "").strip()
+    owner = (data.get("owner_name") or "").strip()
+    holder = (data.get("holder") or "").strip()
+    status = (data.get("status") or "").strip()
+    if status not in VALID_STATUSES:
+        raise HTTPException(status_code=400, detail="状态只能是在库、借出或维修中")
+    if not owner:
+        raise HTTPException(status_code=400, detail="负责人不能为空")
+    if not holder:
+        raise HTTPException(status_code=400, detail="当前持有人不能为空")
+    if not db.query(models.User).filter(models.User.name == owner, models.User.is_active == 1).first():
+        raise HTTPException(status_code=400, detail="负责人必须是启用的内部账号")
+    if status == "在库" and not db.query(models.User).filter(
+        models.User.name == holder, models.User.is_active == 1).first():
+        raise HTTPException(status_code=400, detail="在库配件的持有人必须是内部人员")
+    if code:
+        q = db.query(models.InventoryItem).filter(
+            models.InventoryItem.asset_code == code,
+            models.InventoryItem.is_archived == 0,
+        )
+        if item_id is not None:
+            q = q.filter(models.InventoryItem.id != item_id)
+        if q.first():
+            raise HTTPException(status_code=400, detail=f"配件编号 {code} 已存在")
+    return category, code, owner, holder, status
+
+
 def create_inventory_item(db: Session, payload: schemas.InventoryItemCreate, operator: str):
-    duplicate = db.query(models.InventoryItem).filter(models.InventoryItem.category == payload.category,
-        models.InventoryItem.subtype == payload.subtype, models.InventoryItem.model == payload.model,
-        models.InventoryItem.is_archived == 0).first()
-    if duplicate: raise HTTPException(status_code=400, detail="相同分类、子类型和型号的库存项目已存在")
     data = payload.model_dump(exclude={"initial_quantity"})
-    item = models.InventoryItem(**data, total_quantity=payload.initial_quantity, available_quantity=payload.initial_quantity)
+    category, code, owner, holder, status = _validate_inventory_data(db, data)
+    quantity = payload.initial_quantity
+    if category in INDIVIDUAL_INVENTORY_CATEGORIES:
+        if quantity != 1:
+            raise HTTPException(status_code=400, detail="电池和遥控器必须逐件创建，数量固定为 1")
+    else:
+        duplicate = db.query(models.InventoryItem).filter(
+            models.InventoryItem.category == category,
+            models.InventoryItem.subtype == payload.subtype.strip(),
+            models.InventoryItem.model == payload.model.strip(),
+            models.InventoryItem.owner_name == owner,
+            models.InventoryItem.holder == holder,
+            models.InventoryItem.is_archived == 0,
+        ).first()
+        if duplicate:
+            raise HTTPException(status_code=400, detail="该持有人名下已有相同分类、类型和型号的配件")
+    data.update(category=category, asset_code=code, owner_name=owner, holder=holder, status=status)
+    available = quantity if status == "在库" else 0
+    loaned = quantity if status == "借出" else 0
+    item = models.InventoryItem(**data, total_quantity=quantity, available_quantity=available, loaned_quantity=loaned)
     db.add(item); db.flush()
     if payload.initial_quantity:
         db.add(models.InventoryTransaction(inventory_item_id=item.id, action="stock_in", quantity=payload.initial_quantity,
@@ -341,16 +433,34 @@ def create_inventory_item(db: Session, payload: schemas.InventoryItemCreate, ope
     db.commit(); db.refresh(item); return item
 
 
-def edit_inventory_item(db: Session, item_id: int, payload: schemas.InventoryItemEdit):
+def edit_inventory_item(db: Session, item_id: int, payload: schemas.InventoryItemEdit, allow_owner_change: bool = False):
     item = db.query(models.InventoryItem).filter(models.InventoryItem.id == item_id, models.InventoryItem.is_archived == 0).first()
     if not item: raise HTTPException(status_code=404, detail="库存项目不存在")
-    duplicate = db.query(models.InventoryItem).filter(
-        models.InventoryItem.category == payload.category.strip(), models.InventoryItem.subtype == payload.subtype.strip(),
-        models.InventoryItem.model == payload.model.strip(), models.InventoryItem.id != item_id,
-        models.InventoryItem.is_archived == 0).first()
-    if duplicate: raise HTTPException(status_code=400, detail="相同分类、子类型和型号的库存项目已存在")
-    for field, value in payload.model_dump().items():
+    data = payload.model_dump()
+    if not allow_owner_change:
+        data["owner_name"] = item.owner_name
+    category, code, owner, holder, status = _validate_inventory_data(db, data, item_id=item_id)
+    if category not in INDIVIDUAL_INVENTORY_CATEGORIES:
+        duplicate = db.query(models.InventoryItem).filter(
+            models.InventoryItem.category == category,
+            models.InventoryItem.subtype == payload.subtype.strip(),
+            models.InventoryItem.model == payload.model.strip(),
+            models.InventoryItem.owner_name == owner,
+            models.InventoryItem.holder == holder,
+            models.InventoryItem.id != item_id,
+            models.InventoryItem.is_archived == 0,
+        ).first()
+        if duplicate:
+            raise HTTPException(status_code=400, detail="该持有人名下已有相同分类、类型和型号的配件")
+    data.update(category=category, asset_code=code, owner_name=owner, holder=holder, status=status)
+    for field, value in data.items():
         setattr(item, field, value.strip() if isinstance(value, str) else value)
+    if item.status == "在库":
+        item.available_quantity, item.loaned_quantity = item.total_quantity, 0
+    elif item.status == "借出":
+        item.available_quantity, item.loaned_quantity = 0, item.total_quantity
+    else:
+        item.available_quantity, item.loaned_quantity = 0, 0
     db.commit(); db.refresh(item); return item
 
 
@@ -358,30 +468,49 @@ def delete_inventory_item(db: Session, item_id: int):
     item = db.query(models.InventoryItem).filter(models.InventoryItem.id == item_id, models.InventoryItem.is_archived == 0).first()
     if not item: raise HTTPException(status_code=404, detail="库存项目不存在")
     if item.loaned_quantity > 0: raise HTTPException(status_code=400, detail="仍有配件借出，归还后才能删除")
-    item.is_archived = 1
+    item.is_archived = 2
     db.commit()
     return {"ok": True}
 
 
-def list_inventory_items(db: Session, category: Optional[str] = None):
-    q = db.query(models.InventoryItem).filter(models.InventoryItem.is_archived == 0)
-    if category: q = q.filter(models.InventoryItem.category == category)
-    return q.order_by(models.InventoryItem.category, models.InventoryItem.model).all()
+def list_inventory_items(db: Session, category: Optional[str] = None, status: Optional[str] = None,
+    holder: Optional[str] = None, keyword: Optional[str] = None, visible_to: Optional[str] = None):
+    q = _inventory_item_query(db, visible_to)
+    if category:
+        if category in {"夹爪", "三指灵巧手"}:
+            q = q.filter(models.InventoryItem.category == "灵巧手", models.InventoryItem.subtype == category)
+        else:
+            q = q.filter(models.InventoryItem.category == category)
+    if status and status != "全部": q = q.filter(models.InventoryItem.status == status)
+    if holder and holder != "全部": q = q.filter(models.InventoryItem.holder.like(f"%{holder.strip()}%"))
+    if keyword:
+        like = f"%{keyword.strip()}%"
+        q = q.filter(or_(models.InventoryItem.asset_code.like(like), models.InventoryItem.model.like(like),
+            models.InventoryItem.owner_name.like(like), models.InventoryItem.owner_department.like(like),
+            models.InventoryItem.holder.like(like), models.InventoryItem.location.like(like)))
+    return q.order_by(models.InventoryItem.category, models.InventoryItem.owner_name, models.InventoryItem.model,
+        models.InventoryItem.asset_code).all()
 
 
 def inventory_action(db: Session, item_id: int, payload: schemas.InventoryAction, operator: str):
     item = db.query(models.InventoryItem).filter(models.InventoryItem.id == item_id, models.InventoryItem.is_archived == 0).with_for_update().first()
     if not item: raise HTTPException(status_code=404, detail="库存项目不存在")
+    if item.category in INDIVIDUAL_INVENTORY_CATEGORIES:
+        raise HTTPException(status_code=400, detail="电池和遥控器为逐件管理，请直接修改状态")
     action, qty = payload.action, payload.quantity
     before_total, before_available = item.total_quantity, item.available_quantity
     if action == "stock_in": item.total_quantity += qty; item.available_quantity += qty
     elif action == "borrow":
         if not payload.borrower.strip(): raise HTTPException(status_code=400, detail="借出必须填写借用人")
-        if qty > item.available_quantity: raise HTTPException(status_code=400, detail="出库数量超过当前库存")
-        item.available_quantity -= qty; item.loaned_quantity += qty
+        if qty != item.available_quantity or item.loaned_quantity:
+            raise HTTPException(status_code=400, detail="同一配件记录必须整体借出；分给不同持有人时请分别建档")
+        item.available_quantity = 0; item.loaned_quantity = qty
+        item.status = "借出"; item.holder = payload.borrower.strip()
     elif action == "return":
-        if qty > item.loaned_quantity: raise HTTPException(status_code=400, detail="归还数量超过当前借出数量")
-        item.available_quantity += qty; item.loaned_quantity -= qty
+        if qty != item.loaned_quantity:
+            raise HTTPException(status_code=400, detail="同一配件记录必须整体归还")
+        item.available_quantity = item.total_quantity; item.loaned_quantity = 0
+        item.status = "在库"; item.holder = item.owner_name
     elif action == "migrate":
         if not payload.destination_department.strip(): raise HTTPException(status_code=400, detail="迁移必须填写接收部门")
         if qty > item.available_quantity: raise HTTPException(status_code=400, detail="迁移数量超过当前库存")
@@ -397,12 +526,12 @@ def inventory_action(db: Session, item_id: int, payload: schemas.InventoryAction
         expected_return_at=payload.expected_return_at, operator=operator, note=payload.note.strip())
     db.add(tx)
     if item.total_quantity == 0 and item.loaned_quantity == 0:
-        item.is_archived = 1
+        item.is_archived = 2
     db.commit(); db.refresh(item); return item
 
 
-def inventory_stats(db: Session):
-    items = list_inventory_items(db)
+def inventory_stats(db: Session, visible_to: Optional[str] = None):
+    items = list_inventory_items(db, visible_to=visible_to)
     categories = {}
     for item in items:
         key = item.subtype if item.category == "灵巧手" and item.subtype else item.category

@@ -94,9 +94,13 @@ export const api = {
   restoreRobot: (id) => request(`/robots/${id}/restore`, { method: 'POST' }),
   migrateRobot: (id, data) => request(`/robots/${id}/migrate`, { method: 'POST', body: JSON.stringify(data) }),
   undoRobotMigration: (id) => request(`/robots/${id}/undo-migration`, { method: 'POST' }),
-  listHolders: () => request('/holders'),
+  listHolders: (keyword = '') => request(`/holders${keyword ? '?' + new URLSearchParams({ keyword }) : ''}`),
   getStats: () => request('/stats'),
-  listInventory: (params = {}) => request(`/inventory/items?${new URLSearchParams(params)}`),
+  listInventory: (params = {}) => {
+    const q = new URLSearchParams()
+    Object.entries(params).forEach(([k,v])=>{if(v&&v!=='全部')q.set(k,v)})
+    return request(`/inventory/items${q.toString()?'?'+q.toString():''}`)
+  },
   createInventory: data => request('/inventory/items', { method: 'POST', body: JSON.stringify(data) }),
   editInventory: (id, data) => request(`/inventory/items/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   deleteInventory: id => request(`/inventory/items/${id}`, { method: 'DELETE' }),

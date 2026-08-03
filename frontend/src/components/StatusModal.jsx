@@ -7,47 +7,21 @@ export default function StatusModal({ robot, onClose, onSubmit }) {
   const [location, setLocation] = useState(robot.location || '')
   const [note, setNote] = useState('')
   const [borrower, setBorrower] = useState(robot.borrower || '')
+  const [holder, setHolder] = useState(robot.holder || robot.owner_name || '')
   const [purpose, setPurpose] = useState(robot.purpose || '')
   const [expectedReturnAt, setExpectedReturnAt] = useState(robot.expected_return_at ? robot.expected_return_at.slice(0, 16) : '')
   const [repairDescription, setRepairDescription] = useState(robot.repair_description || '')
-
-  // 用户自定义的状态（持久化）
-  const [customStatuses, setCustomStatuses] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('customStatusesList') || '[]') }
-    catch { return [] }
-  })
-  const [addingStatus, setAddingStatus] = useState(false)
-  const [newStatus, setNewStatus] = useState('')
-
-  useEffect(() => {
-    localStorage.setItem('customStatusesList', JSON.stringify(customStatuses))
-  }, [customStatuses])
+  const chooseStatus = value => {
+    setStatus(value)
+    if (value === '在库' && robot.status === '借出') setHolder(robot.owner_name || '')
+  }
 
   useEffect(() => {
     setStatus(robot.status || '在库')
     setLocation(robot.location || '')
     setNote('')
+    setHolder(robot.holder || robot.owner_name || '')
   }, [robot.id])
-
-  const allStatuses = Array.from(new Set([...DEFAULT_STATUSES, ...customStatuses]))
-
-  const addNewStatus = () => {
-    const v = newStatus.trim()
-    if (!v) return
-    if (allStatuses.includes(v)) {
-      setStatus(v)
-    } else {
-      setCustomStatuses(prev => [...prev, v])
-      setStatus(v)
-    }
-    setNewStatus('')
-    setAddingStatus(false)
-  }
-
-  const removeCustom = (v) => {
-    setCustomStatuses(prev => prev.filter(x => x !== v))
-    if (status === v) setStatus('在库')
-  }
 
   const submit = () => {
     if (status !== '在库' && !location.trim()) {
@@ -55,8 +29,10 @@ export default function StatusModal({ robot, onClose, onSubmit }) {
       return
     }
     if (status === '借出' && !borrower.trim()) { alert('请填写当前借用人'); return }
+    const finalHolder=status==='借出'?borrower.trim():(holder.trim()||robot.owner_name)
+    if(!finalHolder){alert('请填写当前持有人');return}
     onSubmit({ status, location: location.trim(), note: note.trim(), borrower: borrower.trim(), purpose: purpose.trim(),
-      expected_return_at: expectedReturnAt || null, repair_description: repairDescription.trim() })
+      expected_return_at: expectedReturnAt || null, repair_description: repairDescription.trim(), holder: finalHolder })
   }
 
   return (
@@ -67,45 +43,16 @@ export default function StatusModal({ robot, onClose, onSubmit }) {
         <div className="field">
           <label>1. 选择状态</label>
           <div className="radio-group">
-            {allStatuses.map(s => (
+            {DEFAULT_STATUSES.map(s => (
               <div
                 key={s}
                 className={`radio-item ${status === s ? 'active' : ''}`}
-                onClick={() => setStatus(s)}
+                onClick={() => chooseStatus(s)}
               >
-                <input type="radio" checked={status === s} onChange={() => setStatus(s)} />
+                <input type="radio" checked={status === s} onChange={() => chooseStatus(s)} />
                 <span style={{ flex: 1 }}>{s}</span>
-                {customStatuses.includes(s) && (
-                  <span
-                    className="del"
-                    title="移除该自定义状态"
-                    onClick={(e) => { e.stopPropagation(); removeCustom(s) }}
-                  >×</span>
-                )}
               </div>
             ))}
-
-            {addingStatus ? (
-              <div className="radio-item" onClick={e => e.stopPropagation()}>
-                <input
-                  type="text"
-                  autoFocus
-                  value={newStatus}
-                  onChange={e => setNewStatus(e.target.value)}
-                  onKeyDown={e => {
-                    if (e.key === 'Enter') addNewStatus()
-                    if (e.key === 'Escape') { setAddingStatus(false); setNewStatus('') }
-                  }}
-                  placeholder="新状态名，回车确认"
-                  style={{ flex: 1, border: 'none', outline: 'none', background: 'transparent' }}
-                />
-                <button type="button" onClick={addNewStatus} style={{ padding: '2px 10px', border: 'none', borderRadius: 6, background: '#1677ff', color: '#fff', cursor: 'pointer' }}>确定</button>
-              </div>
-            ) : (
-              <div className="radio-item" style={{ color: '#1677ff', borderStyle: 'dashed' }} onClick={() => setAddingStatus(true)}>
-                <span>+ 新增状态</span>
-              </div>
-            )}
           </div>
         </div>
 
@@ -115,6 +62,8 @@ export default function StatusModal({ robot, onClose, onSubmit }) {
           <div className="field"><label>预计归还时间</label><input type="datetime-local" value={expectedReturnAt} onChange={e => setExpectedReturnAt(e.target.value)} /></div>
         </>}
         {status === '维修中' && <div className="field"><label>维修故障描述</label><input value={repairDescription} onChange={e => setRepairDescription(e.target.value)} placeholder="故障现象、维修单位等" /></div>}
+
+        <div className="field"><label>当前持有人 *</label><input value={status==='借出'?borrower:holder} disabled={status==='借出'} onChange={e=>setHolder(e.target.value)} placeholder="设备当前实际保管人"/><div className="hint">借出时自动与借用人保持一致；归还时默认回到负责人。</div></div>
 
         <div className="field">
           <label>2. 填写去向 {status !== '在库' && <span style={{ color: '#ff4d4f' }}>*</span>}</label>
