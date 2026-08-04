@@ -409,3 +409,17 @@ def test_individual_accessories_support_unnumbered_batch_stock_in_and_later_stat
             'holder': '测试管理员',
         })
         assert numbered_batch.status_code == 400
+
+
+def test_custom_accessory_category_is_created_and_included_in_stats():
+    with TestClient(app) as client:
+        headers = auth(client)
+        created = client.post('/api/inventory/items', headers=headers, json={
+            'category': '定制工具', 'model': '赛事工具包', 'initial_quantity': 3,
+            'status': '在库', 'owner_name': '测试管理员', 'holder': '测试管理员',
+        })
+        assert created.status_code == 200, created.text
+        rows = client.get('/api/inventory/items?category=定制工具', headers=headers).json()
+        assert len(rows) == 1 and rows[0]['total_quantity'] == 3
+        stats = client.get('/api/inventory/stats', headers=headers).json()
+        assert stats['categories']['定制工具']['total'] == 3

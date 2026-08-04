@@ -124,7 +124,15 @@ export default function Dashboard({ user }) {
       return ai - bi
     })
   const preferredCategories = ['Pico','夹爪','三指灵巧手','电池','遥控器','拓展坞']
-  const categoriesWithAssets = preferredCategories.filter(name => (inventoryStats.categories?.[name]?.total || 0) > 0)
+  const categoriesWithAssets = Object.keys(inventoryStats.categories || {})
+    .filter(name => (inventoryStats.categories[name]?.total || 0) > 0)
+    .sort((a,b)=>{
+      const ai=preferredCategories.indexOf(a), bi=preferredCategories.indexOf(b)
+      if(ai===-1&&bi===-1)return a.localeCompare(b,'zh-CN')
+      if(ai===-1)return 1
+      if(bi===-1)return -1
+      return ai-bi
+    })
   const modelTone = { G1: 'blue', R1: 'indigo', Go2: 'cyan', A2: 'slate' }
   const openInventoryCategory = category => {
     setInventoryCategory(category)

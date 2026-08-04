@@ -1,11 +1,12 @@
 import { useState } from 'react'
-const CATEGORIES = ['Pico', '灵巧手', '电池', '遥控器', '拓展坞']
+const CATEGORIES = ['Pico', '夹爪', '三指灵巧手', '电池', '遥控器', '拓展坞']
 const INDIVIDUAL = new Set(['电池','遥控器'])
 const normalizeCategory = value => ['夹爪','三指灵巧手'].includes(value) ? {category:'灵巧手',subtype:value} : {category:value||'Pico',subtype:''}
 
 export default function InventoryItemModal({ item, category, holders = [], user, onClose, onSubmit }) {
   const editing = Boolean(item)
   const preset=normalizeCategory(category)
+  const [displayCategory,setDisplayCategory]=useState(item?(item.subtype||item.category):(category||'Pico'))
   const [form, setForm] = useState(item ? {
     category: item.category, subtype: item.subtype || '', model: item.model,
     asset_code: item.asset_code || '', status: item.status || '在库', unit: item.unit,
@@ -14,15 +15,19 @@ export default function InventoryItemModal({ item, category, holders = [], user,
   } : { ...preset, model: '', asset_code: '', status: '在库', unit: '个', initial_quantity: 1, location: '', owner_department: '', owner_name: user?.is_admin===1?'':user?.name||'', holder:user?.name||'', remark: '' })
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
   const individual=INDIVIDUAL.has(form.category)
+  const changeCategory=value=>{
+    setDisplayCategory(value)
+    const normalized=normalizeCategory(value.trim())
+    setForm(current=>({...current,...normalized}))
+  }
   const submit=()=>{
-    if(!form.model.trim()||!form.owner_name.trim()||!form.holder.trim()||(form.category==='灵巧手'&&!form.subtype)) return alert('请完整填写分类、型号、负责人和持有人')
+    if(!displayCategory.trim()||!form.model.trim()||!form.owner_name.trim()||!form.holder.trim()||(form.category==='灵巧手'&&!form.subtype)) return alert('请完整填写分类、型号、负责人和持有人')
     if(!editing&&individual&&form.initial_quantity>1&&form.asset_code.trim()) return alert('批量入库时请暂不填写编号，入库后可逐件补充')
     onSubmit({...form,model:form.model.trim(),asset_code:form.asset_code.trim(),owner_name:form.owner_name.trim(),holder:form.holder.trim(),initial_quantity:form.initial_quantity})
   }
   return <div className="modal-mask" onClick={onClose}><div className="modal modal-wide" onClick={e => e.stopPropagation()}>
     <div className="modal-kicker">配件管理</div><h3>{editing ? '编辑配件' : '新增配件'}</h3><div className="form-grid">
-      <div className="field"><label>资产分类 *</label><select disabled={Boolean(category)} value={form.category} onChange={e => {set('category',e.target.value);set('subtype','')}}>{CATEGORIES.map(x => <option key={x}>{x}</option>)}</select></div>
-      {form.category === '灵巧手' && <div className="field"><label>灵巧手类型 *</label><select disabled={['夹爪','三指灵巧手'].includes(category)} value={form.subtype} onChange={e => set('subtype', e.target.value)}><option value="">请选择</option><option>夹爪</option><option>三指灵巧手</option></select></div>}
+      <div className="field"><label>资产分类 *</label><input list="inventory-category-options" disabled={Boolean(category)} value={displayCategory} onChange={e=>changeCategory(e.target.value)} placeholder="选择已有分类或输入新分类"/><datalist id="inventory-category-options">{CATEGORIES.map(x=><option key={x} value={x}/>)}</datalist><small>没有需要的分类时可直接输入新名称</small></div>
       <div className="field"><label>型号或规格 *</label><input value={form.model} onChange={e => set('model', e.target.value)} placeholder="如 G1 电池、遥控器" /></div>
       <div className="field"><label>编号（可选，全系统不可重复）</label><input value={form.asset_code} onChange={e => set('asset_code', e.target.value)} placeholder={individual?'如 1、2、BAT-003':'可留空'} /></div>
       <div className="field"><label>状态 *</label><select value={form.status} onChange={e => set('status', e.target.value)}><option>在库</option><option>借出</option><option>维修中</option></select></div>
