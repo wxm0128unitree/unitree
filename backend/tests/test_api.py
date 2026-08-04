@@ -423,3 +423,45 @@ def test_custom_accessory_category_is_created_and_included_in_stats():
         assert len(rows) == 1 and rows[0]['total_quantity'] == 3
         stats = client.get('/api/inventory/stats', headers=headers).json()
         assert stats['categories']['定制工具']['total'] == 3
+
+
+def test_quantity_accessory_can_be_split_across_stock_borrowed_and_repair_states():
+    with TestClient(app) as client:
+        headers = auth(client)
+        created = client.post('/api/inventory/items', headers=headers, json={
+            'category': '拓展坞', 'model': '状态拆分测试', 'initial_quantity': 5,
+            'status': '在库', 'owner_name': '测试管理员', 'holder': '测试管理员',
+        })
+        assert created.status_code == 200, created.text
+        source_id = created.json()['id']
+        borrowed = client.post(f'/api/inventory/items/{source_id}/action', headers=headers, json={
+            'action': 'borrow', 'quantity': 2, 'borrower': '赛事一队',
+        })
+        assert borrowed.status_code == 200, borrowed.text
+        assert borrowed.json()['status'] == '借出' and borrowed.json()['total_quantity'] == 2
+
+        rows = client.get('/api/inventory/items?keyword=状态拆分测试', headers=headers).json()
+        stock = next(row for row in rows if row['status'] == '在库')
+        repaired = client.post(f"/api/inventory/items/{stock['id']}/action", headers=headers, json={
+            'action': 'repair', 'quantity': 1,
+        })
+        assert repaired.status_code == 200, repaired.text
+        assert repaired.json()['status'] == '维修中'
+
+        returned = client.post(f"/api/inventory/items/{borrowed.json()['id']}/action", headers=headers, json={
+            'action': 'return', 'quantity': 1,
+        })
+        assert returned.status_code == 200, returned.text
+        rows = client.get('/api/inventory/items?keyword=状态拆分测试', headers=headers).json()
+        totals = {status: sum(row['total_quantity'] for row in rows if row['status'] == status)
+                  for status in ('在库', '借出', '维修中')}
+        assert totals == {'在库': 3, '借出': 1, '维修中': 1}
+
+        repair_row = next(row for row in rows if row['status'] == '维修中')
+        restored = client.post(f"/api/inventory/items/{repair_row['id']}/action", headers=headers, json={
+            'action': 'restore', 'quantity': 1,
+        })
+        assert restored.status_code == 200, restored.text
+        rows = client.get('/api/inventory/items?keyword=状态拆分测试', headers=headers).json()
+        assert sum(row['total_quantity'] for row in rows if row['status'] == '在库') == 4
+        assert sum(row['total_quantity'] for row in rows if row['status'] == '借出') == 1

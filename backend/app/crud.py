@@ -446,18 +446,6 @@ def edit_inventory_item(db: Session, item_id: int, payload: schemas.InventoryIte
     if not allow_owner_change:
         data["owner_name"] = item.owner_name
     category, code, owner, holder, status = _validate_inventory_data(db, data, item_id=item_id)
-    if category not in INDIVIDUAL_INVENTORY_CATEGORIES:
-        duplicate = db.query(models.InventoryItem).filter(
-            models.InventoryItem.category == category,
-            models.InventoryItem.subtype == payload.subtype.strip(),
-            models.InventoryItem.model == payload.model.strip(),
-            models.InventoryItem.owner_name == owner,
-            models.InventoryItem.holder == holder,
-            models.InventoryItem.id != item_id,
-            models.InventoryItem.is_archived == 0,
-        ).first()
-        if duplicate:
-            raise HTTPException(status_code=400, detail="该持有人名下已有相同分类、类型和型号的配件")
     data.update(category=category, asset_code=code, owner_name=owner, holder=holder, status=status)
     for field, value in data.items():
         setattr(item, field, value.strip() if isinstance(value, str) else value)
@@ -506,25 +494,55 @@ def inventory_action(db: Session, item_id: int, payload: schemas.InventoryAction
         raise HTTPException(status_code=400, detail="电池和遥控器为逐件管理，请直接修改状态")
     action, qty = payload.action, payload.quantity
     before_total, before_available = item.total_quantity, item.available_quantity
-    if action == "stock_in": item.total_quantity += qty; item.available_quantity += qty
+    result_item = item
+
+    def move_quantity(target_status: str, target_holder: str):
+        nonlocal result_item
+        if qty > item.total_quantity:
+            raise HTTPException(status_code=400, detail="操作数量超过当前状态数量")
+        if qty == item.total_quantity:
+            item.status, item.holder = target_status, target_holder
+            item.available_quantity = qty if target_status == "在库" else 0
+            item.loaned_quantity = qty if target_status == "借出" else 0
+            return
+        item.total_quantity -= qty
+        if item.status == "在库": item.available_quantity -= qty
+        elif item.status == "借出": item.loaned_quantity -= qty
+        child = models.InventoryItem(
+            category=item.category, subtype=item.subtype, model=item.model, asset_code="",
+            status=target_status, unit=item.unit, total_quantity=qty,
+            available_quantity=qty if target_status == "在库" else 0,
+            loaned_quantity=qty if target_status == "借出" else 0,
+            location=item.location, owner_department=item.owner_department, owner_name=item.owner_name,
+            holder=target_holder, remark=item.remark,
+        )
+        db.add(child); db.flush(); result_item = child
+
+    if action == "stock_in":
+        if item.status != "在库": raise HTTPException(status_code=400, detail="只能在在库卡片中增加数量")
+        item.total_quantity += qty; item.available_quantity += qty
     elif action == "borrow":
+        if item.status != "在库": raise HTTPException(status_code=400, detail="只能借出当前在库的配件")
         if not payload.borrower.strip(): raise HTTPException(status_code=400, detail="借出必须填写借用人")
-        if qty != item.available_quantity or item.loaned_quantity:
-            raise HTTPException(status_code=400, detail="同一配件记录必须整体借出；分给不同持有人时请分别建档")
-        item.available_quantity = 0; item.loaned_quantity = qty
-        item.status = "借出"; item.holder = payload.borrower.strip()
+        move_quantity("借出", payload.borrower.strip())
     elif action == "return":
-        if qty != item.loaned_quantity:
-            raise HTTPException(status_code=400, detail="同一配件记录必须整体归还")
-        item.available_quantity = item.total_quantity; item.loaned_quantity = 0
-        item.status = "在库"; item.holder = item.owner_name
+        if item.status != "借出": raise HTTPException(status_code=400, detail="只能归还当前借出的配件")
+        move_quantity("在库", item.owner_name)
+    elif action == "repair":
+        if item.status == "维修中": raise HTTPException(status_code=400, detail="配件已经在维修中")
+        move_quantity("维修中", item.holder)
+    elif action == "restore":
+        if item.status != "维修中": raise HTTPException(status_code=400, detail="只能将在维修中的配件恢复入库")
+        move_quantity("在库", item.owner_name)
     elif action == "migrate":
+        if item.status != "在库": raise HTTPException(status_code=400, detail="只能迁移当前在库的配件")
         if not payload.destination_department.strip(): raise HTTPException(status_code=400, detail="迁移必须填写接收部门")
         if qty > item.available_quantity: raise HTTPException(status_code=400, detail="迁移数量超过当前库存")
         if qty == item.total_quantity and not allow_permanent_delete:
             raise HTTPException(status_code=403, detail="只有管理员可以将配件数量减到 0")
         item.available_quantity -= qty; item.total_quantity -= qty
     elif action == "scrap":
+        if item.status != "在库": raise HTTPException(status_code=400, detail="只能减少当前在库的配件数量")
         if qty > item.available_quantity: raise HTTPException(status_code=400, detail="报废数量超过当前库存")
         if qty == item.total_quantity and not allow_permanent_delete:
             raise HTTPException(status_code=403, detail="只有管理员可以将配件数量减到 0")
@@ -538,7 +556,7 @@ def inventory_action(db: Session, item_id: int, payload: schemas.InventoryAction
     db.add(tx)
     if item.total_quantity == 0 and item.loaned_quantity == 0:
         item.is_archived = 2
-    db.commit(); db.refresh(item); return item
+    db.commit(); db.refresh(result_item); return result_item
 
 
 def inventory_stats(db: Session, visible_to: Optional[str] = None):
