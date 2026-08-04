@@ -408,8 +408,8 @@ def create_inventory_item(db: Session, payload: schemas.InventoryItemCreate, ope
     category, code, owner, holder, status = _validate_inventory_data(db, data)
     quantity = payload.initial_quantity
     if category in INDIVIDUAL_INVENTORY_CATEGORIES:
-        if quantity != 1:
-            raise HTTPException(status_code=400, detail="电池和遥控器必须逐件创建，数量固定为 1")
+        if quantity > 1 and code:
+            raise HTTPException(status_code=400, detail="批量入库时编号请留空，入库后再逐件补充编号")
     else:
         duplicate = db.query(models.InventoryItem).filter(
             models.InventoryItem.category == category,
@@ -422,15 +422,21 @@ def create_inventory_item(db: Session, payload: schemas.InventoryItemCreate, ope
         if duplicate:
             raise HTTPException(status_code=400, detail="该持有人名下已有相同分类、类型和型号的配件")
     data.update(category=category, asset_code=code, owner_name=owner, holder=holder, status=status)
-    available = quantity if status == "在库" else 0
-    loaned = quantity if status == "借出" else 0
-    item = models.InventoryItem(**data, total_quantity=quantity, available_quantity=available, loaned_quantity=loaned)
-    db.add(item); db.flush()
-    if payload.initial_quantity:
-        db.add(models.InventoryTransaction(inventory_item_id=item.id, action="stock_in", quantity=payload.initial_quantity,
-            before_total=0, after_total=payload.initial_quantity, before_available=0, after_available=payload.initial_quantity,
-            operator=operator, note="初始库存"))
-    db.commit(); db.refresh(item); return item
+    record_quantities = [1] * quantity if category in INDIVIDUAL_INVENTORY_CATEGORIES else [quantity]
+    created = []
+    for record_quantity in record_quantities:
+        available = record_quantity if status == "在库" else 0
+        loaned = record_quantity if status == "借出" else 0
+        item_data = {**data, "asset_code": code if len(record_quantities) == 1 else ""}
+        item = models.InventoryItem(**item_data, total_quantity=record_quantity,
+            available_quantity=available, loaned_quantity=loaned)
+        db.add(item); db.flush(); created.append(item)
+        db.add(models.InventoryTransaction(inventory_item_id=item.id, action="stock_in", quantity=record_quantity,
+            before_total=0, after_total=record_quantity, before_available=0, after_available=available,
+            operator=operator, note="批量初始入库" if len(record_quantities) > 1 else "初始库存"))
+    db.commit()
+    for item in created: db.refresh(item)
+    return created[0]
 
 
 def edit_inventory_item(db: Session, item_id: int, payload: schemas.InventoryItemEdit, allow_owner_change: bool = False):

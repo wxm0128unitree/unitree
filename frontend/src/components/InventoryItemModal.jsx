@@ -16,7 +16,8 @@ export default function InventoryItemModal({ item, category, holders = [], user,
   const individual=INDIVIDUAL.has(form.category)
   const submit=()=>{
     if(!form.model.trim()||!form.owner_name.trim()||!form.holder.trim()||(form.category==='灵巧手'&&!form.subtype)) return alert('请完整填写分类、型号、负责人和持有人')
-    onSubmit({...form,model:form.model.trim(),asset_code:form.asset_code.trim(),owner_name:form.owner_name.trim(),holder:form.holder.trim(),initial_quantity:individual?1:form.initial_quantity})
+    if(!editing&&individual&&form.initial_quantity>1&&form.asset_code.trim()) return alert('批量入库时请暂不填写编号，入库后可逐件补充')
+    onSubmit({...form,model:form.model.trim(),asset_code:form.asset_code.trim(),owner_name:form.owner_name.trim(),holder:form.holder.trim(),initial_quantity:form.initial_quantity})
   }
   return <div className="modal-mask" onClick={onClose}><div className="modal modal-wide" onClick={e => e.stopPropagation()}>
     <div className="modal-kicker">配件管理</div><h3>{editing ? '编辑配件' : '新增配件'}</h3><div className="form-grid">
@@ -25,8 +26,8 @@ export default function InventoryItemModal({ item, category, holders = [], user,
       <div className="field"><label>型号或规格 *</label><input value={form.model} onChange={e => set('model', e.target.value)} placeholder="如 G1 电池、遥控器" /></div>
       <div className="field"><label>编号（可选，全系统不可重复）</label><input value={form.asset_code} onChange={e => set('asset_code', e.target.value)} placeholder={individual?'如 1、2、BAT-003':'可留空'} /></div>
       <div className="field"><label>状态 *</label><select value={form.status} onChange={e => set('status', e.target.value)}><option>在库</option><option>借出</option><option>维修中</option></select></div>
-      {!editing && !individual && <div className="field"><label>初始数量 *</label><input type="number" min="1" value={form.initial_quantity} onChange={e => set('initial_quantity', Math.max(1,Number(e.target.value)))} /></div>}
-      {!editing&&individual&&<div className="field"><label>管理方式</label><input disabled value="逐件管理（数量固定为 1）"/></div>}
+      {!editing && <div className="field"><label>入库数量 *</label><input type="number" min="1" value={form.initial_quantity} onChange={e => set('initial_quantity', Math.max(1,Number(e.target.value)))} /></div>}
+      {!editing&&individual&&<div className="field"><label>管理方式</label><input disabled value="批量创建，入库后逐件补编号"/></div>}
       <div className="field"><label>单位</label><select value={form.unit} onChange={e => set('unit', e.target.value)}><option>个</option><option>块</option><option>套</option><option>台</option></select></div>
       <div className="field"><label>存放位置</label><input value={form.location} onChange={e => set('location', e.target.value)} /></div>
       <div className="field"><label>归属部门</label><input value={form.owner_department} onChange={e => set('owner_department', e.target.value)} /></div>

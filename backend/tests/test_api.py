@@ -376,3 +376,36 @@ def test_holder_search_and_accessory_subtype_detail_filter():
         assert filtered and all(x['holder']=='外部保管甲' for x in filtered)
         holder_search=client.get('/api/holders?keyword=外部保管甲',headers=headers).json()
         assert holder_search[0]['name']=='外部保管甲'
+
+
+def test_individual_accessories_support_unnumbered_batch_stock_in_and_later_status_split():
+    with TestClient(app) as client:
+        headers = auth(client)
+        created = client.post('/api/inventory/items', headers=headers, json={
+            'category': '电池', 'model': 'G1批量电池', 'initial_quantity': 5,
+            'asset_code': '', 'status': '在库', 'owner_name': '测试管理员',
+            'holder': '测试管理员', 'location': '电池柜A区',
+        })
+        assert created.status_code == 200, created.text
+        rows = client.get('/api/inventory/items?category=电池&keyword=G1批量电池', headers=headers).json()
+        assert len(rows) == 5
+        assert all(row['total_quantity'] == 1 and row['asset_code'] == '' for row in rows)
+        assert all(row['owner_name'] == '测试管理员' and row['status'] == '在库' for row in rows)
+
+        first = rows[0]
+        repaired = client.put(f"/api/inventory/items/{first['id']}", headers=headers, json={
+            'category': '电池', 'subtype': '', 'model': 'G1批量电池', 'asset_code': '',
+            'status': '维修中', 'unit': '块', 'location': '维修柜', 'owner_department': '',
+            'owner_name': '测试管理员', 'holder': '维修人员', 'remark': '批量入库后单件转维修',
+        })
+        assert repaired.status_code == 200, repaired.text
+        rows = client.get('/api/inventory/items?category=电池&keyword=G1批量电池', headers=headers).json()
+        assert sum(row['status'] == '在库' for row in rows) == 4
+        assert sum(row['status'] == '维修中' for row in rows) == 1
+
+        numbered_batch = client.post('/api/inventory/items', headers=headers, json={
+            'category': '遥控器', 'model': '禁止重复编号批量', 'initial_quantity': 2,
+            'asset_code': 'RC-BATCH', 'status': '在库', 'owner_name': '测试管理员',
+            'holder': '测试管理员',
+        })
+        assert numbered_batch.status_code == 400
