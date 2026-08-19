@@ -71,6 +71,11 @@ class OperationLog(Base):
 
     robot = relationship("Robot", back_populates="logs")
 
+    @property
+    def device_name(self):
+        """管理端展示使用当前资产编号，数据库主键只保留给内部关联。"""
+        return self.robot.asset_code if self.robot and self.robot.asset_code else self.asset_code
+
 
 class User(Base):
     """用户表"""
@@ -133,3 +138,16 @@ class InventoryTransaction(Base):
     created_at = Column(DateTime, default=utc_now, index=True)
 
     item = relationship("InventoryItem", back_populates="transactions")
+
+    @property
+    def asset_code(self):
+        return self.item.asset_code if self.item else ""
+
+    @property
+    def item_name(self):
+        if not self.item:
+            return "未识别配件"
+        if self.item.asset_code:
+            return self.item.asset_code
+        parts = [self.item.category, self.item.subtype, self.item.model]
+        return " · ".join(part for part in parts if part)

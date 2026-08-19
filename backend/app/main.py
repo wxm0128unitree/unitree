@@ -6,7 +6,7 @@ from fastapi import FastAPI, Depends, Query, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, StreamingResponse
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, contains_eager
 from sqlalchemy.exc import IntegrityError
 from typing import Optional, List
 import os
@@ -477,9 +477,9 @@ def api_export_logs(
         visible_to=visible_to)
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(["时间", "设备编号", "内部ID", "操作人", "操作", "原状态", "新状态", "原位置", "新位置", "备注"])
+    writer.writerow(["时间", "设备编号", "操作人", "操作", "原状态", "新状态", "原位置", "新位置", "备注"])
     for row in items:
-        writer.writerow([row.created_at, row.asset_code, row.robot_id, row.operator, row.action, row.before_status,
+        writer.writerow([row.created_at, row.device_name, row.operator, row.action, row.before_status,
             row.after_status, row.before_location, row.after_location, row.note])
     data = "\ufeff" + output.getvalue()
     return StreamingResponse(iter([data.encode("utf-8")]), media_type="text/csv; charset=utf-8",
@@ -543,7 +543,9 @@ def api_inventory_stats(db: Session = Depends(get_db), current_user: models.User
 @app.get("/api/inventory/transactions", response_model=List[schemas.InventoryTransactionOut], tags=["数量库存"])
 def api_inventory_transactions(limit: int = Query(200, ge=1, le=1000), db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)):
-    q = db.query(models.InventoryTransaction).join(models.InventoryItem)
+    q = db.query(models.InventoryTransaction).join(models.InventoryItem).options(
+        contains_eager(models.InventoryTransaction.item)
+    )
     if current_user.is_admin != 1:
         q = q.filter(models.InventoryItem.owner_name == current_user.name)
     return q.order_by(models.InventoryTransaction.created_at.desc()).limit(limit).all()

@@ -2,7 +2,7 @@
 业务逻辑层
 封装设备状态变更、操作日志记录等核心业务
 """
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, contains_eager
 from sqlalchemy import or_, func
 from sqlalchemy.exc import IntegrityError
 from app import models, schemas
@@ -252,7 +252,7 @@ def list_logs(
     # 始终关联设备主表：当前编号可命中该设备的全部历史；日志快照可命中改号前的记录。
     q = db.query(models.OperationLog).join(
         models.Robot, models.OperationLog.robot_id == models.Robot.id
-    )
+    ).options(contains_eager(models.OperationLog.robot))
     if visible_to:
         q = q.filter(models.Robot.owner_name == visible_to)
     if asset_code and asset_code.strip():

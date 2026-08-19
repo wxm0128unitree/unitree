@@ -126,6 +126,11 @@ def test_quantity_inventory_borrow_return_and_migration():
         assert created.status_code == 200, created.text
         assert created.json()['asset_code'] == 'DOCK-G1'
         item_id = created.json()['id']
+        transactions = client.get('/api/inventory/transactions', headers=headers)
+        assert transactions.status_code == 200, transactions.text
+        created_log = next(row for row in transactions.json() if row['inventory_item_id'] == item_id)
+        assert created_log['asset_code'] == 'DOCK-G1'
+        assert created_log['item_name'] == 'DOCK-G1'
         borrowed = client.post(f'/api/inventory/items/{item_id}/action', headers=headers, json={
             'action': 'borrow', 'quantity': 20, 'borrower': '张三', 'purpose': '测试'
         })
@@ -507,6 +512,7 @@ def test_device_number_finds_complete_operation_history_and_filtered_export():
         dedicated = client.get('/api/logs/device/TRACE-NEW-001?page_size=200', headers=headers)
         assert dedicated.status_code == 200, dedicated.text
         assert len(dedicated.json()['items']) == 4
+        assert all(row['device_name'] == 'TRACE-NEW-001' for row in dedicated.json()['items'])
         old_dedicated = client.get('/api/logs/device/TRACE-OLD-001?page_size=200', headers=headers)
         assert old_dedicated.status_code == 200, old_dedicated.text
         assert len(old_dedicated.json()['items']) == 4
@@ -521,6 +527,7 @@ def test_device_number_finds_complete_operation_history_and_filtered_export():
         exported = client.get('/api/export/logs.csv?asset_code=TRACE-NEW-001', headers=headers)
         assert exported.status_code == 200
         csv_text = exported.content.decode('utf-8-sig')
+        assert '内部ID' not in csv_text
         assert 'TRACE-NEW-001' in csv_text
         assert 'TRACE-OTHER-999' not in csv_text
 

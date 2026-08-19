@@ -182,6 +182,8 @@ class InventoryAction(BaseModel):
 class InventoryTransactionOut(BaseModel):
     id: int
     inventory_item_id: int
+    asset_code: str = ""
+    item_name: str = ""
     action: str
     quantity: int
     before_total: int
@@ -212,6 +214,7 @@ class OperationLogOut(BaseModel):
     note: Optional[str]
     created_at: datetime
     asset_code: str = ""
+    device_name: str = ""
 
     @field_serializer("created_at")
     def serialize_created_at(self, value: datetime):

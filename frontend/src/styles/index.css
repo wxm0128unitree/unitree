@@ -861,10 +861,34 @@ tbody tr:hover { background:#f8faff; }
 .backup-list > div { padding:12px 2px; }
 
 .logs-page { padding-top:0; }
+.device-trace-panel { display:grid; grid-template-columns:minmax(250px,.9fr) minmax(360px,1.4fr); align-items:center; gap:28px; margin-bottom:14px; padding:22px 24px; border:1px solid #cbdcff; border-radius:17px; background:linear-gradient(135deg,#f5f8ff 0%,#fff 72%); box-shadow:0 8px 24px rgba(29,92,255,.07); }
+.device-trace-copy label { display:block; margin:4px 0 5px; color:#172946; font-size:19px; font-weight:750; }
+.device-trace-copy p { max-width:520px; margin:0; color:var(--text-secondary); font-size:13px; line-height:1.55; }
+.device-trace-controls { display:flex; gap:10px; }
+.device-trace-controls input { min-width:0; flex:1; min-height:46px; padding:10px 14px; border:1px solid #b9cae8; border-radius:11px; background:#fff; color:#243650; font-size:15px; outline:none; }
+.device-trace-controls input:focus { border-color:var(--primary); box-shadow:0 0 0 3px rgba(29,92,255,.1); }
+.device-trace-controls .primary-btn { min-height:46px; white-space:nowrap; }
+.log-filter-panel { margin-bottom:14px; border:1px solid #e1e7f0; border-radius:15px; background:#fff; overflow:hidden; }
+.log-filter-heading { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:13px 16px 7px; }
+.log-filter-heading b { margin-right:10px; color:#263955; font-size:13px; }
+.log-filter-heading span { color:var(--text-secondary); font-size:12px; }
+.log-filter-heading .text-btn { font-size:12px; white-space:nowrap; }
+.toolbar.log-filters { align-items:flex-end; margin:0; padding:8px 14px 14px; border:0; border-radius:0; box-shadow:none; }
+.log-filter-field { display:flex; min-width:130px; flex:1; flex-direction:column; gap:5px; }
+.log-filter-field.keyword { flex:1.35; }
+.log-filter-field > span { padding-left:2px; color:#65748b; font-size:11px; font-weight:650; }
+.log-filter-field input, .log-filter-field select { width:100%; }
+.log-filter-actions { display:flex; gap:8px; }
+.filter-summary { display:flex; align-items:center; gap:8px; margin:0 0 12px; }
+.filter-summary span { margin-left:auto; color:#5873a0; font-size:11px; }
 .log-item { padding:14px 17px; margin-bottom:10px; border:1px solid #e1e7f0; border-left:4px solid var(--primary); border-radius:13px; box-shadow:0 6px 20px rgba(25,48,89,.045); }
 .log-item .top { margin-bottom:6px; }
 .log-item .action { display:inline-block; margin-right:5px; padding:3px 7px; border-radius:6px; background:#eaf1ff; color:#285ebd; font-size:11px; }
-.log-detail { margin-top:7px; line-height:1.6; }
+.log-device-name { display:flex; align-items:baseline; gap:7px; color:#172946; }
+.log-device-name small { color:#78869b; font-size:10px; font-weight:600; }
+.log-device-name b { color:#244f92; font-size:14px; }
+.log-operator { color:#5c6a7e; font-size:12px; }
+.log-detail { display:flex; flex-wrap:wrap; gap:5px 18px; margin-top:7px; line-height:1.6; }
 .pagination { padding:10px; }
 
 .modal-mask { background:rgba(9,20,41,.58); backdrop-filter:blur(6px); }
@@ -921,6 +945,15 @@ tbody tr:hover { background:#f8faff; }
   .stats { grid-template-columns:repeat(2,1fr); gap:9px; }
   .stat-card { min-height:84px; padding:13px; gap:10px; }.stat-icon{width:35px;height:35px}.stat-card .num{font-size:24px}
   .toolbar { border-radius:13px; }.toolbar input.search{min-width:100%;}
+  .device-trace-panel { grid-template-columns:1fr; gap:15px; padding:18px; }
+  .device-trace-controls { flex-direction:column; }
+  .log-filter-heading span { display:none; }
+  .toolbar.log-filters { align-items:stretch; }
+  .log-filter-field { min-width:calc(50% - 6px); }
+  .log-filter-actions { width:100%; }
+  .log-filter-actions button { flex:1; }
+  .filter-summary { align-items:flex-start; flex-wrap:wrap; }
+  .filter-summary span { width:100%; margin-left:0; }
   .list { grid-template-columns:1fr; }
   .page-heading { min-height:86px; padding:18px; border-radius:15px; }.page-heading h2{font-size:20px}.page-heading p{font-size:12px}.page-count{display:none}
   .panel { padding:15px; }.inline-form{padding:11px}.inline-form input{width:100%}
@@ -930,6 +963,8 @@ tbody tr:hover { background:#f8faff; }
 }
 
 @media (max-width: 430px) {
+  .log-filter-field { min-width:100%; }
+  .log-item .top { align-items:flex-start; gap:8px; }
   .asset-stat-grid,.category-stat-grid { grid-template-columns:1fr 1fr; }
   .asset-stat { min-height:148px; }
   .asset-stat .asset-status-line { font-size:10px; }
