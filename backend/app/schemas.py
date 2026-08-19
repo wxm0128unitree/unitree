@@ -211,7 +211,7 @@ class OperationLogOut(BaseModel):
     after_location: Optional[str]
     note: Optional[str]
     created_at: datetime
-    asset_code: Optional[str] = None
+    asset_code: str = ""
 
     @field_serializer("created_at")
     def serialize_created_at(self, value: datetime):

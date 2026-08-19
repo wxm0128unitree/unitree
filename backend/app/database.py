@@ -122,6 +122,9 @@ def _migrate_existing_database():
             "is_active": "INTEGER NOT NULL DEFAULT 1",
             "last_login_at": "TIMESTAMP NULL",
         },
+        "operation_logs": {
+            "asset_code": "VARCHAR(64) NOT NULL DEFAULT ''",
+        },
         "inventory_items": {
             "asset_code": "VARCHAR(128) DEFAULT ''",
             "status": "VARCHAR(16) NOT NULL DEFAULT '在库'",
@@ -146,6 +149,23 @@ def _migrate_existing_database():
                 message = str(exc).lower()
                 if "duplicate column" not in message and "already exists" not in message:
                     raise
+    _backfill_operation_log_asset_codes()
+
+
+def _backfill_operation_log_asset_codes():
+    """用设备当前编号安全补齐旧日志；不覆盖已经保存的历史编号快照。"""
+    tables = set(inspect(engine).get_table_names())
+    if not {"robots", "operation_logs"}.issubset(tables):
+        return
+    with engine.begin() as conn:
+        conn.exec_driver_sql(
+            "UPDATE operation_logs SET asset_code = COALESCE("
+            "(SELECT robots.asset_code FROM robots WHERE robots.id = operation_logs.robot_id), '') "
+            "WHERE asset_code IS NULL OR asset_code = ''"
+        )
+        conn.exec_driver_sql(
+            "CREATE INDEX IF NOT EXISTS ix_operation_logs_asset_code ON operation_logs (asset_code)"
+        )
 
 
 def _normalize_legacy_training_platforms():

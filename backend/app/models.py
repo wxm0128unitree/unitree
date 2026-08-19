@@ -58,6 +58,8 @@ class OperationLog(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     robot_id = Column(Integer, ForeignKey("robots.id"), nullable=False)
+    # 保存操作发生时的设备编号快照。即使设备后来改号，历史日志仍可按旧编号追溯。
+    asset_code = Column(String(64), nullable=False, default="", index=True)
     operator = Column(String(64), default="admin")  # 操作人
     action = Column(String(32), nullable=False)  # 操作类型：入库/借出/归还/维修/转移
     before_status = Column(String(16))

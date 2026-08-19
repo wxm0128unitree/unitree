@@ -110,7 +110,7 @@ def create_robot(db: Session, payload: schemas.RobotCreate, operator: str = "adm
         db.flush()
         # 设备与首条审计日志在同一事务中提交，避免只写入设备却没有日志。
         db.add(models.OperationLog(
-            robot_id=robot.id, operator=operator, action="入库",
+            robot_id=robot.id, asset_code=robot.asset_code, operator=operator, action="入库",
             before_status="", after_status=robot.status,
             before_location="", after_location=robot.location or "", note="设备创建",
         ))
@@ -170,6 +170,7 @@ def update_robot_status(
     action = _infer_action(before["status"], payload.status)
     log = models.OperationLog(
         robot_id=robot.id,
+        asset_code=robot.asset_code,
         operator=operator,
         action=action,
         before_status=before["status"],
@@ -228,12 +229,22 @@ def list_logs(
     db: Session, robot_id: Optional[int] = None, operator: Optional[str] = None,
     action: Optional[str] = None, date_from: Optional[datetime] = None,
     date_to: Optional[datetime] = None, keyword: Optional[str] = None,
+    asset_code: Optional[str] = None,
     page: int = 1, page_size: int = 50, visible_to: Optional[str] = None,
 ):
     """查询操作日志并返回分页结果。"""
-    q = db.query(models.OperationLog)
+    # 始终关联设备主表：当前编号可命中该设备的全部历史；日志快照可命中改号前的记录。
+    q = db.query(models.OperationLog).join(
+        models.Robot, models.OperationLog.robot_id == models.Robot.id
+    )
     if visible_to:
-        q = q.join(models.Robot).filter(models.Robot.owner_name == visible_to)
+        q = q.filter(models.Robot.owner_name == visible_to)
+    if asset_code and asset_code.strip():
+        code_like = f"%{asset_code.strip()}%"
+        q = q.filter(or_(
+            models.OperationLog.asset_code.ilike(code_like),
+            models.Robot.asset_code.ilike(code_like),
+        ))
     if robot_id:
         q = q.filter(models.OperationLog.robot_id == robot_id)
     if operator:
@@ -261,7 +272,7 @@ def delete_robot(db: Session, robot_id: int, operator: str = "admin"):
         raise HTTPException(status_code=404, detail="设备不存在")
     robot.is_archived = 1
     robot.archived_at = models.utc_now()
-    db.add(models.OperationLog(robot_id=robot.id, operator=operator, action="归档", before_status=robot.status,
+    db.add(models.OperationLog(robot_id=robot.id, asset_code=robot.asset_code, operator=operator, action="归档", before_status=robot.status,
         after_status=robot.status, before_location=robot.location, after_location=robot.location, note="设备已归档"))
     db.commit()
     return {"ok": True, "operator": operator}
@@ -273,7 +284,7 @@ def restore_robot(db: Session, robot_id: int, operator: str = "admin"):
         raise HTTPException(status_code=404, detail="归档设备不存在")
     robot.is_archived = 0
     robot.archived_at = None
-    db.add(models.OperationLog(robot_id=robot.id, operator=operator, action="恢复", before_status=robot.status,
+    db.add(models.OperationLog(robot_id=robot.id, asset_code=robot.asset_code, operator=operator, action="恢复", before_status=robot.status,
         after_status=robot.status, before_location=robot.location, after_location=robot.location, note="设备已恢复"))
     db.commit()
     db.refresh(robot)
@@ -297,6 +308,7 @@ def edit_robot(db: Session, robot_id: int, payload: schemas.RobotEdit, operator:
         "platform_type": payload.platform_type if payload.platform_type is not None else robot.platform_type,
     })
     changed = []
+    changes = []
     if not payload.holder.strip():
         raise HTTPException(status_code=400, detail="持有人不能为空")
     if robot.status == "借出" and robot.borrower and payload.holder.strip() != robot.borrower:
@@ -304,6 +316,8 @@ def edit_robot(db: Session, robot_id: int, payload: schemas.RobotEdit, operator:
     if robot.status == "在库" and not db.query(models.User).filter(
         models.User.name == payload.holder.strip(), models.User.is_active == 1).first():
         raise HTTPException(status_code=400, detail="在库设备的持有人必须是内部人员")
+    before_status = robot.status
+    before_location = robot.location
     fields = ["asset_code", "model", "device_branch", "platform_type", "holder", "location", "remark"]
     if allow_owner_change:
         if not db.query(models.User).filter(models.User.name == payload.owner_name.strip(), models.User.is_active == 1).first():
@@ -312,12 +326,19 @@ def edit_robot(db: Session, robot_id: int, payload: schemas.RobotEdit, operator:
     for field in fields:
         value = identity[field] if field in identity else getattr(payload, field).strip()
         if getattr(robot, field) != value:
+            changes.append((field, getattr(robot, field) or "（空）", value or "（空）"))
             changed.append(field)
             setattr(robot, field, value)
     if changed:
-        db.add(models.OperationLog(robot_id=robot.id, operator=operator, action="资料编辑",
-            before_status=robot.status, after_status=robot.status, before_location=robot.location,
-            after_location=robot.location, note="更新字段：" + "、".join(changed)))
+        labels = {
+            "asset_code": "设备编号", "model": "型号", "device_branch": "设备类型",
+            "platform_type": "实训台类型", "holder": "持有人", "location": "位置",
+            "remark": "备注", "owner_department": "归属部门", "owner_name": "负责人",
+        }
+        detail = "；".join(f"{labels.get(field, field)}：{before} → {after}" for field, before, after in changes)
+        db.add(models.OperationLog(robot_id=robot.id, asset_code=robot.asset_code, operator=operator, action="资料编辑",
+            before_status=before_status, after_status=robot.status, before_location=before_location,
+            after_location=robot.location, note=detail))
     db.commit()
     db.refresh(robot)
     return robot
@@ -334,7 +355,7 @@ def inventory_robot(db: Session, robot_id: int, payload: schemas.InventoryUpdate
     robot.last_inventory_by = operator
     robot.last_inventory_location = payload.location.strip()
     robot.inventory_note = payload.note.strip()
-    db.add(models.OperationLog(robot_id=robot.id, operator=operator, action="盘点",
+    db.add(models.OperationLog(robot_id=robot.id, asset_code=robot.asset_code, operator=operator, action="盘点",
         before_status=robot.status, after_status=robot.status, before_location=robot.location,
         after_location=payload.location.strip() or robot.location, note=payload.note.strip()))
     db.commit()
@@ -353,7 +374,7 @@ def migrate_robot(db: Session, robot_id: int, payload: schemas.RobotMigration, o
     robot.destination_department = payload.destination_department.strip()
     robot.destination_holder = payload.destination_holder.strip()
     robot.migration_reason = payload.reason.strip()
-    db.add(models.OperationLog(robot_id=robot.id, operator=operator, action="迁移",
+    db.add(models.OperationLog(robot_id=robot.id, asset_code=robot.asset_code, operator=operator, action="迁移",
         before_status=robot.status, after_status="已迁移", before_location=robot.location,
         after_location=robot.destination_department, note=payload.reason))
     db.commit(); db.refresh(robot); return robot
@@ -364,7 +385,7 @@ def undo_robot_migration(db: Session, robot_id: int, operator: str):
     if not robot: raise HTTPException(status_code=404, detail="迁移记录不存在")
     robot.lifecycle_status = "active"; robot.migrated_at = None
     robot.destination_department = ""; robot.destination_holder = ""; robot.migration_reason = ""
-    db.add(models.OperationLog(robot_id=robot.id, operator=operator, action="撤销迁移",
+    db.add(models.OperationLog(robot_id=robot.id, asset_code=robot.asset_code, operator=operator, action="撤销迁移",
         before_status="已迁移", after_status=robot.status, before_location="", after_location=robot.location, note="管理员撤销迁移"))
     db.commit(); db.refresh(robot); return robot
 

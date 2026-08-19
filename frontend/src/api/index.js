@@ -123,5 +123,9 @@ export const api = {
   restoreBackup: (kind, name) => request(`/backup/restore?${new URLSearchParams({ kind, name, confirm: 'RESTORE' })}`, { method: 'POST' }),
   downloadBackup: (kind, name) => download(`/backup/download?${new URLSearchParams({ kind, name })}`, name),
   exportRobots: () => download('/export/robots.csv', '设备清单.csv'),
-  exportLogs: () => download('/export/logs.csv', '操作日志.csv'),
+  exportLogs: (params = {}) => {
+    const q = new URLSearchParams()
+    Object.entries(params).forEach(([k, v]) => { if (v) q.set(k, v) })
+    return download(`/export/logs.csv${q.toString() ? '?' + q.toString() : ''}`, '操作日志.csv')
+  },
 }

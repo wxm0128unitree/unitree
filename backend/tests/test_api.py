@@ -465,3 +465,81 @@ def test_quantity_accessory_can_be_split_across_stock_borrowed_and_repair_states
         rows = client.get('/api/inventory/items?keyword=状态拆分测试', headers=headers).json()
         assert sum(row['total_quantity'] for row in rows if row['status'] == '在库') == 4
         assert sum(row['total_quantity'] for row in rows if row['status'] == '借出') == 1
+
+
+def test_device_number_finds_complete_operation_history_and_filtered_export():
+    with TestClient(app) as client:
+        headers = auth(client)
+        robot = client.post('/api/robots', headers=headers, json={
+            'asset_code': 'TRACE-OLD-001', 'model': 'G1', 'status': '在库',
+            'owner_name': '测试管理员', 'holder': '测试管理员',
+        })
+        assert robot.status_code == 200, robot.text
+        robot_id = robot.json()['id']
+        unrelated = client.post('/api/robots', headers=headers, json={
+            'asset_code': 'TRACE-OTHER-999', 'model': 'R1', 'status': '在库',
+            'owner_name': '测试管理员', 'holder': '测试管理员',
+        })
+        assert unrelated.status_code == 200, unrelated.text
+
+        borrowed = client.post(f'/api/robots/{robot_id}/status', headers=headers, json={
+            'status': '借出', 'location': '赛事现场', 'borrower': '赛事组', 'note': '领用',
+        })
+        assert borrowed.status_code == 200, borrowed.text
+        returned = client.post(f'/api/robots/{robot_id}/status', headers=headers, json={
+            'status': '在库', 'holder': '测试管理员', 'note': '归还验收',
+        })
+        assert returned.status_code == 200, returned.text
+        renamed = client.put(f'/api/robots/{robot_id}', headers=headers, json={
+            'asset_code': 'TRACE-NEW-001', 'model': 'G1', 'owner_department': '',
+            'owner_name': '测试管理员', 'holder': '测试管理员', 'location': '', 'remark': '',
+        })
+        assert renamed.status_code == 200, renamed.text
+
+        current = client.get('/api/logs?asset_code=TRACE-NEW-001&page_size=200', headers=headers)
+        assert current.status_code == 200, current.text
+        current_rows = current.json()['items']
+        assert len(current_rows) == 4
+        assert {row['robot_id'] for row in current_rows} == {robot_id}
+        assert {row['action'] for row in current_rows} == {'入库', '借出', '归还', '资料编辑'}
+        assert any('设备编号：TRACE-OLD-001 → TRACE-NEW-001' in (row['note'] or '') for row in current_rows)
+
+        partial = client.get('/api/logs?asset_code=NEW-001&page_size=200', headers=headers).json()['items']
+        assert len(partial) == 4
+        old_rows = client.get('/api/logs?asset_code=TRACE-OLD-001&page_size=200', headers=headers).json()['items']
+        assert len(old_rows) == 3
+        assert all(row['asset_code'] == 'TRACE-OLD-001' for row in old_rows)
+
+        exported = client.get('/api/export/logs.csv?asset_code=TRACE-NEW-001', headers=headers)
+        assert exported.status_code == 200
+        csv_text = exported.content.decode('utf-8-sig')
+        assert 'TRACE-NEW-001' in csv_text
+        assert 'TRACE-OTHER-999' not in csv_text
+
+
+def test_existing_operation_logs_are_backfilled_without_data_loss(tmp_path, monkeypatch):
+    from sqlalchemy import create_engine
+    from app import database
+
+    migration_engine = create_engine(f"sqlite:///{tmp_path / 'legacy.db'}")
+    with migration_engine.begin() as conn:
+        conn.exec_driver_sql("CREATE TABLE robots (id INTEGER PRIMARY KEY, asset_code VARCHAR(64) NOT NULL)")
+        conn.exec_driver_sql(
+            "CREATE TABLE operation_logs (id INTEGER PRIMARY KEY, robot_id INTEGER NOT NULL, "
+            "operator VARCHAR(64), action VARCHAR(32), note TEXT)"
+        )
+        conn.exec_driver_sql("INSERT INTO robots (id, asset_code) VALUES (7, 'LEGACY-007')")
+        conn.exec_driver_sql(
+            "INSERT INTO operation_logs (id, robot_id, operator, action, note) "
+            "VALUES (11, 7, '旧操作人', '入库', '旧日志不得丢失')"
+        )
+    monkeypatch.setattr(database, 'engine', migration_engine)
+    database._migrate_existing_database()
+    with migration_engine.connect() as conn:
+        row = conn.exec_driver_sql(
+            "SELECT id, robot_id, asset_code, operator, action, note FROM operation_logs WHERE id = 11"
+        ).mappings().one()
+    assert dict(row) == {
+        'id': 11, 'robot_id': 7, 'asset_code': 'LEGACY-007', 'operator': '旧操作人',
+        'action': '入库', 'note': '旧日志不得丢失',
+    }

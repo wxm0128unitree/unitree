@@ -52,16 +52,31 @@ FRONTEND_INDEX = os.path.join(FRONTEND_DIST, "index.html")
 _static_mounted = False
 
 
+def _admin_bootstrap_config():
+    """只从环境变量读取首个管理员，禁止在公开源码中保留默认账号或密码。"""
+    config = {
+        "name": os.environ.get("ADMIN_NAME", "").strip(),
+        "phone": os.environ.get("ADMIN_PHONE", "").strip(),
+        "password": os.environ.get("ADMIN_PASSWORD", ""),
+    }
+    if not all(config.values()):
+        raise RuntimeError(
+            "数据库尚未初始化，请在运行环境中设置 ADMIN_NAME、ADMIN_PHONE、ADMIN_PASSWORD"
+        )
+    return config
+
+
 def _bootstrap_admin():
     """数据库为空时自动创建默认管理员（可通过环境变量自定义）"""
     db = SessionLocal()
     try:
         if db.query(models.User).count() > 0:
             return
+        config = _admin_bootstrap_config()
         admin = models.User(
-            name=os.environ.get("ADMIN_NAME", "\u738b\u66e6\u660e"),  # 王曦明
-            phone=os.environ.get("ADMIN_PHONE", "13083401281"),
-            password_hash=hash_password(os.environ.get("ADMIN_PASSWORD", "111111")),
+            name=config["name"],
+            phone=config["phone"],
+            password_hash=hash_password(config["password"]),
             is_admin=1,
         )
         db.add(admin)
@@ -139,10 +154,11 @@ def api_admin_init(
     existing = db.query(models.User).first()
     if existing:
         return {"ok": False, "message": "\u6570\u636e\u5e93\u5df2\u6709\u7528\u6237\uff0c\u8df3\u8fc7\u521d\u59cb\u5316"}
+    config = _admin_bootstrap_config()
     user = models.User(
-        name=os.environ.get("ADMIN_NAME", "\u738b\u66e6\u660e"),
-        phone=os.environ.get("ADMIN_PHONE", "13083401281"),
-        password_hash=hash_password(os.environ.get("ADMIN_PASSWORD", "111111")),
+        name=config["name"],
+        phone=config["phone"],
+        password_hash=hash_password(config["password"]),
         is_admin=1,
     )
     db.add(user)
@@ -372,6 +388,7 @@ def api_stats(
 @app.get("/api/logs", response_model=schemas.LogPage, tags=["\u65e5\u5fd7"])
 def api_logs(
     robot_id: Optional[int] = Query(None),
+    asset_code: Optional[str] = Query(None, max_length=64),
     operator: Optional[str] = Query(None),
     action: Optional[str] = Query(None),
     date_from: Optional[datetime] = Query(None),
@@ -382,7 +399,7 @@ def api_logs(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    items, total = crud.list_logs(db, robot_id=robot_id, operator=operator, action=action,
+    items, total = crud.list_logs(db, robot_id=robot_id, asset_code=asset_code, operator=operator, action=action,
         date_from=date_from, date_to=date_to, keyword=keyword, page=page, page_size=page_size,
         visible_to=None if current_user.is_admin == 1 else current_user.name)
     return {"items": items, "total": total, "page": page, "page_size": page_size}
@@ -412,15 +429,22 @@ def api_export_robots(
 
 @app.get("/api/export/logs.csv", tags=["导出"])
 def api_export_logs(
+    asset_code: Optional[str] = Query(None, max_length=64),
+    operator: Optional[str] = Query(None),
+    action: Optional[str] = Query(None),
+    date_from: Optional[datetime] = Query(None),
+    date_to: Optional[datetime] = Query(None),
+    keyword: Optional[str] = Query(None),
     db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user),
 ):
-    items, _ = crud.list_logs(db, page=1, page_size=10000,
+    items, _ = crud.list_logs(db, asset_code=asset_code, operator=operator, action=action,
+        date_from=date_from, date_to=date_to, keyword=keyword, page=1, page_size=10000,
         visible_to=None if current_user.is_admin == 1 else current_user.name)
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(["时间", "设备ID", "操作人", "操作", "原状态", "新状态", "原位置", "新位置", "备注"])
+    writer.writerow(["时间", "设备编号", "内部ID", "操作人", "操作", "原状态", "新状态", "原位置", "新位置", "备注"])
     for row in items:
-        writer.writerow([row.created_at, row.robot_id, row.operator, row.action, row.before_status,
+        writer.writerow([row.created_at, row.asset_code, row.robot_id, row.operator, row.action, row.before_status,
             row.after_status, row.before_location, row.after_location, row.note])
     data = "\ufeff" + output.getvalue()
     return StreamingResponse(iter([data.encode("utf-8")]), media_type="text/csv; charset=utf-8",
