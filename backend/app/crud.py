@@ -3,7 +3,7 @@
 封装设备状态变更、操作日志记录等核心业务
 """
 from sqlalchemy.orm import Session
-from sqlalchemy import or_
+from sqlalchemy import or_, func
 from sqlalchemy.exc import IntegrityError
 from app import models, schemas
 from fastapi import HTTPException
@@ -13,6 +13,22 @@ from datetime import datetime
 
 def get_robot_by_code(db: Session, asset_code: str) -> Optional[models.Robot]:
     return db.query(models.Robot).filter(models.Robot.asset_code == asset_code).first()
+
+
+def resolve_robot_for_history(db: Session, asset_code: str) -> Optional[models.Robot]:
+    """按完整编号解析唯一设备；当前编号优先，旧编号则通过日志快照回溯。"""
+    code = (asset_code or "").strip()
+    if not code:
+        return None
+    robot = db.query(models.Robot).filter(
+        func.lower(models.Robot.asset_code) == code.lower()
+    ).first()
+    if robot:
+        return robot
+    historical = db.query(models.OperationLog).filter(
+        func.lower(models.OperationLog.asset_code) == code.lower()
+    ).order_by(models.OperationLog.created_at.desc(), models.OperationLog.id.desc()).first()
+    return historical.robot if historical else None
 
 
 VALID_DEVICE_BRANCHES = {"standard_robot", "training_platform"}

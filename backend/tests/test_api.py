@@ -504,6 +504,14 @@ def test_device_number_finds_complete_operation_history_and_filtered_export():
         assert {row['action'] for row in current_rows} == {'入库', '借出', '归还', '资料编辑'}
         assert any('设备编号：TRACE-OLD-001 → TRACE-NEW-001' in (row['note'] or '') for row in current_rows)
 
+        dedicated = client.get('/api/logs/device/TRACE-NEW-001?page_size=200', headers=headers)
+        assert dedicated.status_code == 200, dedicated.text
+        assert len(dedicated.json()['items']) == 4
+        old_dedicated = client.get('/api/logs/device/TRACE-OLD-001?page_size=200', headers=headers)
+        assert old_dedicated.status_code == 200, old_dedicated.text
+        assert len(old_dedicated.json()['items']) == 4
+        assert client.get('/api/logs/device/NEW-001', headers=headers).status_code == 404
+
         partial = client.get('/api/logs?asset_code=NEW-001&page_size=200', headers=headers).json()['items']
         assert len(partial) == 4
         old_rows = client.get('/api/logs?asset_code=TRACE-OLD-001&page_size=200', headers=headers).json()['items']
@@ -543,3 +551,29 @@ def test_existing_operation_logs_are_backfilled_without_data_loss(tmp_path, monk
         'id': 11, 'robot_id': 7, 'asset_code': 'LEGACY-007', 'operator': '旧操作人',
         'action': '入库', 'note': '旧日志不得丢失',
     }
+
+
+def test_device_history_is_available_to_owner_and_current_holder_only():
+    with TestClient(app) as client:
+        admin_headers = auth(client)
+        for name, phone in [('追溯负责人', '13700000031'), ('当前持有人', '13700000032'), ('无关人员', '13700000033')]:
+            response = client.post('/api/users', headers=admin_headers, json={
+                'name': name, 'phone': phone, 'password': 'password1', 'is_admin': 0,
+            })
+            assert response.status_code == 200, response.text
+        robot = client.post('/api/robots', headers=admin_headers, json={
+            'asset_code': 'HISTORY-ACCESS-001', 'model': 'G1', 'status': '在库',
+            'owner_name': '追溯负责人', 'holder': '当前持有人',
+        })
+        assert robot.status_code == 200, robot.text
+
+        def user_headers(phone):
+            login = client.post('/api/auth/login', json={'phone': phone, 'password': 'password1'})
+            return {'Authorization': f"Bearer {login.json()['access_token']}"}
+
+        owner_result = client.get('/api/logs/device/history-access-001', headers=user_headers('13700000031'))
+        holder_result = client.get('/api/logs/device/HISTORY-ACCESS-001', headers=user_headers('13700000032'))
+        denied_result = client.get('/api/logs/device/HISTORY-ACCESS-001', headers=user_headers('13700000033'))
+        assert owner_result.status_code == 200 and owner_result.json()['total'] == 1
+        assert holder_result.status_code == 200 and holder_result.json()['total'] == 1
+        assert denied_result.status_code == 404

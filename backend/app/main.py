@@ -405,6 +405,34 @@ def api_logs(
     return {"items": items, "total": total, "page": page, "page_size": page_size}
 
 
+@app.get("/api/logs/device/{asset_code}", response_model=schemas.LogPage, tags=["日志"])
+def api_device_history(
+    asset_code: str,
+    operator: Optional[str] = Query(None),
+    action: Optional[str] = Query(None),
+    date_from: Optional[datetime] = Query(None),
+    date_to: Optional[datetime] = Query(None),
+    keyword: Optional[str] = Query(None),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """用完整设备编号解析设备，再返回该设备的完整操作时间线。"""
+    robot = crud.resolve_robot_for_history(db, asset_code)
+    if not robot:
+        raise HTTPException(status_code=404, detail=f"未找到设备编号：{asset_code.strip()}")
+    if current_user.is_admin != 1 and current_user.name not in {robot.owner_name, robot.holder}:
+        # 不向无权用户泄露设备是否存在。
+        raise HTTPException(status_code=404, detail=f"未找到设备编号：{asset_code.strip()}")
+    items, total = crud.list_logs(
+        db, robot_id=robot.id, operator=operator, action=action,
+        date_from=date_from, date_to=date_to, keyword=keyword,
+        page=page, page_size=page_size, visible_to=None,
+    )
+    return {"items": items, "total": total, "page": page, "page_size": page_size}
+
+
 @app.get("/api/export/robots.csv", tags=["导出"])
 def api_export_robots(
     include_archived: bool = Query(False), db: Session = Depends(get_db),
@@ -437,9 +465,16 @@ def api_export_logs(
     keyword: Optional[str] = Query(None),
     db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user),
 ):
-    items, _ = crud.list_logs(db, asset_code=asset_code, operator=operator, action=action,
+    robot_id = None
+    visible_to = None if current_user.is_admin == 1 else current_user.name
+    if asset_code and asset_code.strip():
+        robot = crud.resolve_robot_for_history(db, asset_code)
+        if not robot or (current_user.is_admin != 1 and current_user.name not in {robot.owner_name, robot.holder}):
+            raise HTTPException(status_code=404, detail=f"未找到设备编号：{asset_code.strip()}")
+        robot_id, visible_to = robot.id, None
+    items, _ = crud.list_logs(db, robot_id=robot_id, operator=operator, action=action,
         date_from=date_from, date_to=date_to, keyword=keyword, page=1, page_size=10000,
-        visible_to=None if current_user.is_admin == 1 else current_user.name)
+        visible_to=visible_to)
     output = io.StringIO()
     writer = csv.writer(output)
     writer.writerow(["时间", "设备编号", "内部ID", "操作人", "操作", "原状态", "新状态", "原位置", "新位置", "备注"])

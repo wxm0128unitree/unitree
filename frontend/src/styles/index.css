@@ -308,6 +308,15 @@ body {
 
 /* ===== 日志页 ===== */
 .logs-page { padding-top: 4px; }
+.filter-summary {
+  margin: -2px 0 12px;
+  padding: 10px 13px;
+  border: 1px solid #cfe0ff;
+  border-radius: 9px;
+  background: #edf4ff;
+  color: #28599e;
+  font-size: 13px;
+}
 .log-item {
   background: var(--card);
   border-radius: 8px;

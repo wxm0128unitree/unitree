@@ -113,6 +113,12 @@ export const api = {
     const qs = q.toString()
     return request(`/logs${qs ? '?' + qs : ''}`)
   },
+  getDeviceHistory: (assetCode, params = {}) => {
+    const q = new URLSearchParams()
+    Object.entries(params).forEach(([k, v]) => { if (v) q.set(k, v) })
+    const qs = q.toString()
+    return request(`/logs/device/${encodeURIComponent(assetCode.trim())}${qs ? '?' + qs : ''}`)
+  },
 
   // ===== 用户管理 =====
   listUsers: () => request('/users'),
