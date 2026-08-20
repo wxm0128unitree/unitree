@@ -26,7 +26,7 @@ from app.auth import (
 app = FastAPI(
     title="\u5b87\u6811\u673a\u5668\u4eba\u8bbe\u5907\u7ba1\u7406\u7cfb\u7edf",
     description="\u53bb\u6d41\u7a0b\u5316\u3001\u4ee5\u72b6\u6001\u4e3a\u4e2d\u5fc3\u7684\u8bbe\u5907\u51fa\u5165\u5e93\u7ba1\u7406",
-    version="3.0.0",
+    version="3.0.1",
 )
 
 # CORS：默认允许所有（部署后可设 CORS_ORIGINS 收紧）
