@@ -73,7 +73,9 @@ export default function App() {
     <div className="app">
       <header className="header">
         <div className="header-left">
-          <div className="brand-mark" aria-hidden="true">UT</div>
+          <div className="brand-mark">
+            <img src="/assets/unitree-logo.png" alt="Unitree 宇树" />
+          </div>
           <div className="brand-copy">
             <span className="brand-eyebrow">UNITREE · INTERNAL ASSET CENTER</span>
             <h1>部门设备与配件管理中心</h1>
