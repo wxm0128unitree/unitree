@@ -31,7 +31,14 @@ export default function Register({ onSuccess, onSwitchToLogin }) {
 
   return (
     <div className="auth-page">
-      <img className="auth-background" src="/assets/unitree-hero.png" alt="" aria-hidden="true" />
+      <section className="auth-cover" aria-label="系统简介">
+        <div className="auth-cover-logo"><img src="/assets/unitree-logo.png" alt="Unitree 宇树" /></div>
+        <div className="auth-cover-kicker">UNITREE · INTERNAL OPERATIONS</div>
+        <h1>加入部门资产<br />协同管理空间</h1>
+        <p>使用真实身份记录每一次设备与配件操作，让团队协作更清晰、更可靠。</p>
+        <div className="auth-cover-features"><span>权限清晰</span><span>数据一致</span><span>全程留痕</span></div>
+        <div className="auth-cover-orbit" aria-hidden="true"><i></i><i></i><i></i></div>
+      </section>
       <div className="auth-card">
         <div className="auth-logo"><img src="/assets/unitree-logo.png" alt="Unitree 宇树" /></div>
         <div className="auth-eyebrow">INTERNAL ASSET CENTER</div>

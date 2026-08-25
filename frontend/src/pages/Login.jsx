@@ -28,7 +28,14 @@ export default function Login({ onSuccess, onSwitchToRegister }) {
 
   return (
     <div className="auth-page">
-      <img className="auth-background" src="/assets/unitree-hero.png" alt="" aria-hidden="true" />
+      <section className="auth-cover" aria-label="系统简介">
+        <div className="auth-cover-logo"><img src="/assets/unitree-logo.png" alt="Unitree 宇树" /></div>
+        <div className="auth-cover-kicker">UNITREE · INTERNAL OPERATIONS</div>
+        <h1>让每一台设备<br />始终有迹可循</h1>
+        <p>统一掌握设备状态、实际持有人与配件库存，让借出、归还、维修和盘点形成完整记录。</p>
+        <div className="auth-cover-features"><span>设备状态</span><span>库存流转</span><span>操作追溯</span></div>
+        <div className="auth-cover-orbit" aria-hidden="true"><i></i><i></i><i></i></div>
+      </section>
       <div className="auth-card">
         <div className="auth-logo"><img src="/assets/unitree-logo.png" alt="Unitree 宇树" /></div>
         <div className="auth-eyebrow">INTERNAL ASSET CENTER</div>
