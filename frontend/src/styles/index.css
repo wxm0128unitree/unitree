@@ -685,7 +685,17 @@ button, input, select { font: inherit; }
 button { transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease, background .18s ease, color .18s ease; }
 button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px solid rgba(29, 92, 255, .18); outline-offset: 2px; }
 
-.app { max-width: 1480px; padding: 24px 30px 40px; }
+.app { max-width: 1480px; padding: 24px 30px 40px; position:relative; isolation:isolate; }
+.app::before {
+  content:"";
+  position:fixed;
+  inset:0;
+  z-index:-1;
+  background:
+    linear-gradient(115deg,rgba(244,248,255,.78) 0%,rgba(239,245,255,.7) 45%,rgba(237,244,255,.62) 100%),
+    url('/assets/unitree-hero.png') center 42% / cover no-repeat;
+  pointer-events:none;
+}
 
 .header {
   min-height: 92px;
@@ -910,10 +920,10 @@ tbody tr:hover { background:#f8faff; }
 .auth-page {
   isolation:isolate;
   background:
-    linear-gradient(100deg,rgba(5,14,34,.93) 0%,rgba(11,31,68,.72) 48%,rgba(8,25,58,.48) 100%),
+    linear-gradient(100deg,rgba(5,14,34,.72) 0%,rgba(11,31,68,.43) 48%,rgba(8,25,58,.22) 100%),
     url('/assets/unitree-hero.png') center center / cover no-repeat fixed;
 }
-.auth-page::before { content:""; position:fixed; inset:0; z-index:-1; background:radial-gradient(circle at 68% 50%,transparent 0,rgba(6,17,39,.1) 36%,rgba(4,12,29,.42) 100%); }
+.auth-page::before { content:""; position:fixed; inset:0; z-index:-1; background:radial-gradient(circle at 68% 50%,transparent 0,rgba(6,17,39,.04) 42%,rgba(4,12,29,.2) 100%); }
 .auth-card { max-width:420px; padding:38px; border:1px solid rgba(255,255,255,.72); border-radius:22px; background:rgba(255,255,255,.94); box-shadow:0 32px 80px rgba(4,17,42,.48); backdrop-filter:blur(14px); }
 .auth-logo { width:230px; height:48px; display:flex; align-items:center; justify-content:center; margin:0 auto 15px; }
 .auth-logo img { display:block; width:100%; max-height:46px; object-fit:contain; }
