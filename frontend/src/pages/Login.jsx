@@ -28,6 +28,7 @@ export default function Login({ onSuccess, onSwitchToRegister }) {
 
   return (
     <div className="auth-page">
+      <img className="auth-background" src="/assets/unitree-hero.png" alt="" aria-hidden="true" />
       <div className="auth-card">
         <div className="auth-logo"><img src="/assets/unitree-logo.png" alt="Unitree 宇树" /></div>
         <div className="auth-eyebrow">INTERNAL ASSET CENTER</div>

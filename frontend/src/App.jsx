@@ -71,6 +71,7 @@ export default function App() {
   // 已登录：渲染主界面
   return (
     <div className="app">
+      <img className="app-background" src="/assets/unitree-hero.png" alt="" aria-hidden="true" />
       <header className="header">
         <div className="header-left">
           <div className="brand-mark">
