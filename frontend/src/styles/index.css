@@ -701,7 +701,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
   position:fixed;
   inset:0;
   z-index:1;
-  background:linear-gradient(115deg,rgba(244,248,255,.76) 0%,rgba(239,245,255,.68) 45%,rgba(237,244,255,.58) 100%);
+  background:linear-gradient(115deg,rgba(244,248,255,.24) 0%,rgba(239,245,255,.16) 45%,rgba(237,244,255,.1) 100%);
   pointer-events:none;
 }
 .app > :not(.app-background) { position:relative; z-index:2; }
@@ -756,8 +756,8 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
   margin-bottom:28px;
   border-radius:24px;
   background:
-    radial-gradient(circle at 78% -80%, rgba(140,178,255,.75), transparent 45%),
-    linear-gradient(120deg,#102551 0%,#174ca5 58%,#2168e8 100%);
+    linear-gradient(90deg,rgba(7,29,70,.94) 0%,rgba(15,57,126,.78) 45%,rgba(23,91,190,.38) 100%),
+    url('/assets/unitree-hero.png') center 54% / cover no-repeat;
   box-shadow:0 24px 54px rgba(23,76,165,.2);
   overflow:hidden;
   position:relative;
