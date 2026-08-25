@@ -724,9 +724,9 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
 .brand-mark { width:190px; height:48px; display:flex; align-items:center; flex:0 0 auto; }
 .brand-mark img { display:block; width:100%; height:auto; max-height:43px; object-fit:contain; object-position:left center; filter:invert(1); }
 .brand-copy { min-width:0; }
-.brand-eyebrow { display:block; margin-bottom:4px; color:#9fc2ff; font-size:9px; font-weight:800; letter-spacing:.16em; }
-.header h1 { font-size:20px; font-weight:720; letter-spacing:.01em; }
-.header-subtitle { display:block; margin-top:5px; color:rgba(226,237,255,.68); font-size:12px; }
+.brand-eyebrow { display:block; margin-bottom:5px; color:#9fc7ff; font-size:9px; font-weight:800; letter-spacing:.17em; }
+.header h1 { color:#fff; font-size:22px; font-weight:760; line-height:1.2; letter-spacing:.015em; text-shadow:0 2px 12px rgba(1,17,49,.2); }
+.header-subtitle { display:block; margin-top:6px; color:rgba(220,234,255,.72); font-size:11px; letter-spacing:.025em; }
 .header-user { z-index:1; padding:9px 10px 9px 15px; border-radius:14px; background:rgba(255,255,255,.09); border:1px solid rgba(255,255,255,.15); backdrop-filter:blur(10px); }
 .badge-admin { background:#ffd467; color:#543b00; padding:2px 7px; }
 .logout-btn { padding:7px 13px; border-radius:9px; background:rgba(255,255,255,.1); }

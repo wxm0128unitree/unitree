@@ -78,9 +78,9 @@ export default function App() {
             <img src="/assets/unitree-logo.png" alt="Unitree 宇树" />
           </div>
           <div className="brand-copy">
-            <span className="brand-eyebrow">UNITREE · INTERNAL ASSET CENTER</span>
-            <h1>部门设备与配件管理中心</h1>
-            <span className="header-subtitle">设备清晰可见，流转全程可追溯</span>
+            <span className="brand-eyebrow">UNITREE · INDUSTRY-EDUCATION INTEGRATION</span>
+            <h1>产教融合部设备与配件管理中心</h1>
+            <span className="header-subtitle">统一管理部门资产，让设备状态与流转记录清晰可见</span>
           </div>
         </div>
         <div className="header-user">
