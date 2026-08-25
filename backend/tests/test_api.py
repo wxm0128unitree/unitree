@@ -344,7 +344,8 @@ def test_inventory_is_owner_scoped_and_individual_codes_are_global():
             'category':'电池','model':'G1电池','asset_code':'2','initial_quantity':2,
             'owner_name':'测试管理员','holder':'测试管理员','status':'在库',
         })
-        assert bulk_battery.status_code == 400
+        assert bulk_battery.status_code == 200
+        assert bulk_battery.json()['total_quantity'] == 2
         login=client.post('/api/auth/login', json={'phone':'13700000021','password':'password1'}).json()
         user_headers={'Authorization':f"Bearer {login['access_token']}"}
         visible=client.get('/api/inventory/items?category=电池',headers=user_headers).json()
@@ -396,7 +397,7 @@ def test_holder_search_and_accessory_subtype_detail_filter():
         assert holder_search[0]['name']=='外部保管甲'
 
 
-def test_individual_accessories_support_unnumbered_batch_stock_in_and_later_status_split():
+def test_accessories_use_quantity_pool_and_split_into_destination_batches():
     with TestClient(app) as client:
         headers = auth(client)
         created = client.post('/api/inventory/items', headers=headers, json={
@@ -406,25 +407,26 @@ def test_individual_accessories_support_unnumbered_batch_stock_in_and_later_stat
         })
         assert created.status_code == 200, created.text
         rows = client.get('/api/inventory/items?category=电池&keyword=G1批量电池', headers=headers).json()
-        assert len(rows) == 5
-        assert all(row['total_quantity'] == 1 and row['asset_code'] == '' for row in rows)
+        assert len(rows) == 1
+        assert rows[0]['total_quantity'] == 5 and rows[0]['asset_code'] == ''
         assert all(row['owner_name'] == '测试管理员' and row['status'] == '在库' for row in rows)
 
         first = rows[0]
         repaired = client.post(f"/api/inventory/items/{first['id']}/action", headers=headers, json={
-            'action': 'repair', 'quantity': 1, 'note': '批量入库后单件转维修',
+            'action': 'repair', 'quantity': 2, 'location': '供应商A', 'note': '从总量中送修',
         })
         assert repaired.status_code == 200, repaired.text
         rows = client.get('/api/inventory/items?category=电池&keyword=G1批量电池', headers=headers).json()
-        assert sum(row['status'] == '在库' for row in rows) == 4
-        assert sum(row['status'] == '维修中' for row in rows) == 1
+        assert sum(row['total_quantity'] for row in rows if row['status'] == '在库') == 3
+        assert sum(row['total_quantity'] for row in rows if row['status'] == '维修中') == 2
 
         numbered_batch = client.post('/api/inventory/items', headers=headers, json={
-            'category': '遥控器', 'model': '禁止重复编号批量', 'initial_quantity': 2,
+            'category': '遥控器', 'model': '批次编号数量库存', 'initial_quantity': 2,
             'asset_code': 'RC-BATCH', 'status': '在库', 'owner_name': '测试管理员',
             'holder': '测试管理员',
         })
-        assert numbered_batch.status_code == 400
+        assert numbered_batch.status_code == 200
+        assert numbered_batch.json()['total_quantity'] == 2
 
 
 def test_custom_accessory_category_is_created_and_included_in_stats():

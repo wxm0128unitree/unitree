@@ -174,7 +174,9 @@ class HolderOption(BaseModel):
 class InventoryAction(BaseModel):
     action: str
     quantity: int = Field(..., gt=0)
+    item_ids: list[int] = Field(default_factory=list)
     borrower: str = Field(default="", max_length=32)
+    location: str = Field(default="", max_length=128)
     purpose: str = Field(default="", max_length=128)
     destination_department: str = Field(default="", max_length=64)
     destination_holder: str = Field(default="", max_length=32)
