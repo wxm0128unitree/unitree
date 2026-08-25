@@ -106,7 +106,11 @@ export const api = {
   deleteInventory: id => request(`/inventory/items/${id}`, { method: 'DELETE' }),
   inventoryAction: (id, data) => request(`/inventory/items/${id}/action`, { method: 'POST', body: JSON.stringify(data) }),
   getInventoryStats: () => request('/inventory/stats'),
-  listInventoryTransactions: () => request('/inventory/transactions'),
+  listInventoryTransactions: (params = {}) => {
+    const q = new URLSearchParams()
+    Object.entries(params).forEach(([k, v]) => { if (v) q.set(k, v) })
+    return request(`/inventory/transactions${q.toString() ? '?' + q.toString() : ''}`)
+  },
   listLogs: (params = {}) => {
     const q = new URLSearchParams()
     Object.entries(params).forEach(([k, v]) => { if (v) q.set(k, v) })
@@ -133,5 +137,10 @@ export const api = {
     const q = new URLSearchParams()
     Object.entries(params).forEach(([k, v]) => { if (v) q.set(k, v) })
     return download(`/export/logs.csv${q.toString() ? '?' + q.toString() : ''}`, '操作日志.csv')
+  },
+  exportInventoryLogs: (params = {}) => {
+    const q = new URLSearchParams()
+    Object.entries(params).forEach(([k, v]) => { if (v) q.set(k, v) })
+    return download(`/export/inventory-transactions.csv${q.toString() ? '?' + q.toString() : ''}`, '配件流水.csv')
   },
 }

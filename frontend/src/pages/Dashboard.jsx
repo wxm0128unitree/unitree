@@ -24,6 +24,7 @@ export default function Dashboard({ user }) {
   const [inventoryRobot, setInventoryRobot] = useState(null)
   const [migratingRobot, setMigratingRobot] = useState(null)
   const [includeArchived, setIncludeArchived] = useState(false)
+  const [sortBy, setSortBy] = useState('updated')
   const [showAdd, setShowAdd] = useState(false)
   const [toast, setToast] = useState(null)
 
@@ -110,7 +111,10 @@ export default function Dashboard({ user }) {
   }
 
   // 从已有数据中动态提取所有出现过的型号 / 状态 / 持有人
-  const allModels = Array.from(new Set(robots.map(r => r.model).filter(Boolean)))
+  const allModels = Array.from(new Set([
+    ...Object.keys(stats.by_model || {}),
+    ...robots.map(r => r.model),
+  ].filter(Boolean)))
   const allStatuses = Array.from(new Set(robots.map(r => r.status).filter(Boolean)))
   const preferredModels = ['G1', 'R1', 'Go2', 'A2']
   const modelsWithAssets = Object.entries(stats.by_model || {})
@@ -138,6 +142,20 @@ export default function Dashboard({ user }) {
     setInventoryCategory(category)
     setView('inventory')
   }
+  const hasFilters = filters.model !== '全部' || filters.status !== '全部' || filters.holder !== '全部' || filters.keyword.trim() || includeArchived
+  const clearFilters = () => {
+    setFilters({ model: '全部', status: '全部', holder: '全部', keyword: '' })
+    setIncludeArchived(false)
+  }
+  const visibleRobots = [...robots].sort((a, b) => {
+    if (sortBy === 'code') return (a.asset_code || '').localeCompare(b.asset_code || '', 'zh-CN', { numeric: true })
+    if (sortBy === 'status') return ({ '借出': 0, '维修中': 1, '在库': 2 }[a.status] ?? 3) - ({ '借出': 0, '维修中': 1, '在库': 2 }[b.status] ?? 3)
+    return new Date(b.updated_at || b.created_at || 0) - new Date(a.updated_at || a.created_at || 0)
+  })
+  const chooseStatusFilter = status => {
+    setFilters(f => ({ ...f, status: f.status === status ? '全部' : status }))
+    setView('robots')
+  }
 
   return (
     <div>
@@ -156,20 +174,24 @@ export default function Dashboard({ user }) {
       </div>}
       {view === 'inventory' && <Inventory key={inventoryCategory||'all'} category={inventoryCategory} onBack={()=>{setInventoryCategory(null);setView('overview')}} onStats={setInventoryStats} user={user} holders={holders} />}
       {view === 'robots' && <>
+      <div className="page-heading robot-heading">
+        <div><span className="eyebrow">EQUIPMENT WORKSPACE</span><h2>设备管理</h2><p>先定位设备，再完成借出、归还、维修或盘点。</p></div>
+        <button className="primary-btn" onClick={() => setShowAdd(true)}>＋ 新增设备</button>
+      </div>
       {/* 统计卡片 */}
       <div className="stats">
-        <div className="stat-card total">
+        <button className={`stat-card total ${filters.status === '全部' ? 'selected' : ''}`} onClick={() => chooseStatusFilter('全部')}>
           <span className="stat-icon">∑</span><div><span className="num">{stats.total}</span><div className="label">设备总数</div></div>
-        </div>
-        <div className="stat-card in-stock">
+        </button>
+        <button className={`stat-card in-stock ${filters.status === '在库' ? 'selected' : ''}`} onClick={() => chooseStatusFilter('在库')}>
           <span className="stat-icon">✓</span><div><span className="num">{stats.in_stock}</span><div className="label">当前在库</div></div>
-        </div>
-        <div className="stat-card borrowed">
+        </button>
+        <button className={`stat-card borrowed ${filters.status === '借出' ? 'selected' : ''}`} onClick={() => chooseStatusFilter('借出')}>
           <span className="stat-icon">↗</span><div><span className="num">{stats.borrowed}</span><div className="label">当前借出</div></div>
-        </div>
-        <div className="stat-card in-repair">
+        </button>
+        <button className={`stat-card in-repair ${filters.status === '维修中' ? 'selected' : ''}`} onClick={() => chooseStatusFilter('维修中')}>
           <span className="stat-icon">!</span><div><span className="num">{stats.in_repair}</span><div className="label">维修处理中</div></div>
-        </div>
+        </button>
       </div>
 
       {/* 筛选栏 */}
@@ -199,10 +221,15 @@ export default function Dashboard({ user }) {
           onChange={e => setFilters(f => ({ ...f, keyword: e.target.value }))}
           onKeyDown={e => e.key === 'Enter' && handleSearch()}
         />
-        <button onClick={handleSearch}>搜索</button>
-        <button className="ghost" onClick={() => setShowAdd(true)}>+ 新增设备</button>
+        <button onClick={handleSearch}>查询</button>
+        {hasFilters && <button className="quiet" onClick={clearFilters}>清除条件</button>}
         <button className="ghost" onClick={() => api.exportRobots().catch(e => showToast(e.message, 'error'))}>导出 CSV</button>
         {user.is_admin === 1 && <label className="archive-toggle"><input type="checkbox" checked={includeArchived} onChange={e => setIncludeArchived(e.target.checked)} /> 显示迁移/归档</label>}
+      </div>
+
+      <div className="result-bar">
+        <div><b>{loading ? '正在查询…' : `找到 ${robots.length} 台设备`}</b>{hasFilters && <span> · 已按条件筛选</span>}</div>
+        <label>排序 <select value={sortBy} onChange={e => setSortBy(e.target.value)}><option value="updated">最近更新</option><option value="status">优先处理</option><option value="code">资产编号</option></select></label>
       </div>
 
       {/* 设备列表 */}
@@ -216,11 +243,12 @@ export default function Dashboard({ user }) {
         </div>
       ) : (
         <div className="list">
-          {robots.map(r => (
+          {visibleRobots.map(r => (
             <RobotCard
               key={r.id}
               robot={r}
               onClick={() => setActiveRobot(r)}
+              onFlow={() => setActiveRobot({ ...r, _suggestedStatus: r.status === '在库' ? '借出' : '在库' })}
               onDelete={() => handleDelete(r)}
               onEdit={() => setEditingRobot(r)}
               onInventory={() => setInventoryRobot(r)}

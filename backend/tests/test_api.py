@@ -63,6 +63,10 @@ def test_protected_reads_and_full_robot_lifecycle():
         assert checked.status_code == 200
         assert checked.json()["last_inventory_by"] == "测试管理员"
 
+        returned = client.post(f"/api/robots/{robot_id}/status", headers=headers, json={
+            "status": "在库", "holder": "测试管理员", "note": "归还后归档",
+        })
+        assert returned.status_code == 200, returned.text
         assert client.delete(f"/api/robots/{robot_id}", headers=headers).status_code == 200
         assert client.get("/api/robots", headers=headers).json() == []
         archived = client.get("/api/robots?include_archived=true", headers=headers).json()
@@ -128,7 +132,7 @@ def test_quantity_inventory_borrow_return_and_migration():
         item_id = created.json()['id']
         transactions = client.get('/api/inventory/transactions', headers=headers)
         assert transactions.status_code == 200, transactions.text
-        created_log = next(row for row in transactions.json() if row['inventory_item_id'] == item_id)
+        created_log = next(row for row in transactions.json()['items'] if row['inventory_item_id'] == item_id)
         assert created_log['asset_code'] == 'DOCK-G1'
         assert created_log['item_name'] == 'DOCK-G1'
         borrowed = client.post(f'/api/inventory/items/{item_id}/action', headers=headers, json={
@@ -253,13 +257,22 @@ def test_inventory_edit_delete_and_auto_archive_at_zero():
             'asset_code': 'RC-001', 'status': '在库', 'owner_name': '测试管理员', 'holder': '测试管理员',
         })
         item_id = created.json()['id']
-        edited = client.put(f'/api/inventory/items/{item_id}', headers=headers, json={
+        forbidden_edit = client.put(f'/api/inventory/items/{item_id}', headers=headers, json={
             'category': '遥控器', 'subtype': '', 'model': 'RC-ZERO', 'asset_code': 'RC-001',
             'status': '维修中', 'unit': '个', 'location': '维修柜', 'owner_department': '',
             'owner_name': '测试管理员', 'holder': '维修人员', 'remark': '待检修',
         })
-        assert edited.status_code == 200, edited.text
-        assert edited.json()['status'] == '维修中'
+        assert forbidden_edit.status_code == 400
+        repaired = client.post(f'/api/inventory/items/{item_id}/action', headers=headers, json={
+            'action': 'repair', 'quantity': 1, 'note': '待检修',
+        })
+        assert repaired.status_code == 200, repaired.text
+        assert repaired.json()['status'] == '维修中'
+        assert client.delete(f'/api/inventory/items/{item_id}', headers=headers).status_code == 400
+        restored = client.post(f'/api/inventory/items/{item_id}/action', headers=headers, json={
+            'action': 'restore', 'quantity': 1, 'note': '维修完成',
+        })
+        assert restored.status_code == 200, restored.text
         assert client.delete(f'/api/inventory/items/{item_id}', headers=headers).status_code == 200
         assert all(item['id'] != item_id for item in client.get('/api/inventory/items', headers=headers).json())
 
@@ -398,10 +411,8 @@ def test_individual_accessories_support_unnumbered_batch_stock_in_and_later_stat
         assert all(row['owner_name'] == '测试管理员' and row['status'] == '在库' for row in rows)
 
         first = rows[0]
-        repaired = client.put(f"/api/inventory/items/{first['id']}", headers=headers, json={
-            'category': '电池', 'subtype': '', 'model': 'G1批量电池', 'asset_code': '',
-            'status': '维修中', 'unit': '块', 'location': '维修柜', 'owner_department': '',
-            'owner_name': '测试管理员', 'holder': '维修人员', 'remark': '批量入库后单件转维修',
+        repaired = client.post(f"/api/inventory/items/{first['id']}/action", headers=headers, json={
+            'action': 'repair', 'quantity': 1, 'note': '批量入库后单件转维修',
         })
         assert repaired.status_code == 200, repaired.text
         rows = client.get('/api/inventory/items?category=电池&keyword=G1批量电池', headers=headers).json()
@@ -584,3 +595,60 @@ def test_device_history_is_available_to_owner_and_current_holder_only():
         assert owner_result.status_code == 200 and owner_result.json()['total'] == 1
         assert holder_result.status_code == 200 and holder_result.json()['total'] == 1
         assert denied_result.status_code == 404
+
+
+def test_device_state_machine_blocks_invalid_transitions_and_noop_logs():
+    with TestClient(app) as client:
+        headers = auth(client)
+        robot = client.post('/api/robots', headers=headers, json={
+            'asset_code': 'STATE-MACHINE-001', 'model': 'G1', 'status': '在库',
+            'owner_name': '测试管理员', 'holder': '测试管理员',
+        }).json()
+        robot_id = robot['id']
+        before = client.get(f'/api/logs/device/{robot["asset_code"]}', headers=headers).json()['total']
+        noop = client.post(f'/api/robots/{robot_id}/status', headers=headers, json={
+            'status': '在库', 'holder': '测试管理员', 'location': '',
+        })
+        assert noop.status_code == 200
+        assert client.get(f'/api/logs/device/{robot["asset_code"]}', headers=headers).json()['total'] == before
+        borrowed = client.post(f'/api/robots/{robot_id}/status', headers=headers, json={
+            'status': '借出', 'holder': '借用人', 'borrower': '借用人', 'location': '测试现场',
+        })
+        assert borrowed.status_code == 200
+        assert client.delete(f'/api/robots/{robot_id}', headers=headers).status_code == 400
+        repaired = client.post(f'/api/robots/{robot_id}/status', headers=headers, json={
+            'status': '维修中', 'holder': '维修单位', 'location': '维修中心', 'repair_description': '关节异常',
+        })
+        assert repaired.status_code == 200
+        invalid = client.post(f'/api/robots/{robot_id}/status', headers=headers, json={
+            'status': '借出', 'borrower': '其他人', 'location': '外部现场',
+        })
+        assert invalid.status_code == 400
+
+
+def test_partial_inventory_flow_tracks_child_and_merges_on_return():
+    with TestClient(app) as client:
+        headers = auth(client)
+        source = client.post('/api/inventory/items', headers=headers, json={
+            'category': '拓展坞', 'model': '合并测试', 'initial_quantity': 5,
+            'status': '在库', 'owner_name': '测试管理员', 'holder': '测试管理员',
+        }).json()
+        borrowed = client.post(f"/api/inventory/items/{source['id']}/action", headers=headers, json={
+            'action': 'borrow', 'quantity': 2, 'borrower': '赛事组', 'purpose': '比赛',
+            'expected_return_at': '2030-01-02T12:00:00',
+        })
+        assert borrowed.status_code == 200, borrowed.text
+        borrowed_item = borrowed.json()
+        assert borrowed_item['id'] != source['id']
+        assert borrowed_item['current_borrower'] == '赛事组'
+        tx_page = client.get('/api/inventory/transactions?action=borrow', headers=headers).json()
+        assert tx_page['total'] >= 1
+        assert tx_page['items'][0]['inventory_item_id'] == borrowed_item['id']
+        returned = client.post(f"/api/inventory/items/{borrowed_item['id']}/action", headers=headers, json={
+            'action': 'return', 'quantity': 2,
+        })
+        assert returned.status_code == 200, returned.text
+        rows = client.get('/api/inventory/items?keyword=合并测试', headers=headers).json()
+        assert len(rows) == 1
+        assert rows[0]['status'] == '在库' and rows[0]['total_quantity'] == 5
+        assert client.get('/api/export/inventory-transactions.csv?action=return', headers=headers).status_code == 200

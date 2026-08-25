@@ -142,9 +142,12 @@ class InventoryItemOut(BaseModel):
     is_archived: int
     created_at: datetime
     updated_at: datetime
+    current_borrower: str = ""
+    current_purpose: str = ""
+    current_expected_return_at: Optional[datetime] = None
 
-    @field_serializer("created_at", "updated_at")
-    def serialize_utc_times(self, value: datetime): return _as_utc(value)
+    @field_serializer("created_at", "updated_at", "current_expected_return_at")
+    def serialize_utc_times(self, value: Optional[datetime]): return _as_utc(value)
     class Config: from_attributes = True
 
 
@@ -196,8 +199,9 @@ class InventoryTransactionOut(BaseModel):
     destination_holder: str
     operator: str
     note: str
+    expected_return_at: Optional[datetime] = None
     created_at: datetime
-    @field_serializer("created_at")
+    @field_serializer("created_at", "expected_return_at")
     def serialize_created_at(self, value: datetime): return _as_utc(value)
     class Config: from_attributes = True
 
@@ -296,6 +300,13 @@ class AdminUserUpdate(BaseModel):
 
 class LogPage(BaseModel):
     items: list[OperationLogOut]
+    total: int
+    page: int
+    page_size: int
+
+
+class InventoryTransactionPage(BaseModel):
+    items: list[InventoryTransactionOut]
     total: int
     page: int
     page_size: int

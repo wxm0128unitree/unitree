@@ -116,6 +116,28 @@ class InventoryItem(Base):
 
     transactions = relationship("InventoryTransaction", back_populates="item", cascade="all, delete-orphan")
 
+    def _latest_business_transaction(self):
+        if not self.transactions:
+            return None
+        return max(self.transactions, key=lambda row: (row.created_at or datetime.min, row.id or 0))
+
+    @property
+    def current_borrower(self):
+        if self.status != "借出":
+            return ""
+        tx = self._latest_business_transaction()
+        return (tx.borrower if tx and tx.borrower else self.holder) or ""
+
+    @property
+    def current_purpose(self):
+        tx = self._latest_business_transaction()
+        return tx.purpose if self.status == "借出" and tx else ""
+
+    @property
+    def current_expected_return_at(self):
+        tx = self._latest_business_transaction()
+        return tx.expected_return_at if self.status == "借出" and tx else None
+
 
 class InventoryTransaction(Base):
     __tablename__ = "inventory_transactions"

@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.orm import Session, contains_eager
+from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
 from typing import Optional, List
 import os
@@ -524,7 +525,7 @@ def api_edit_inventory_item(item_id: int, payload: schemas.InventoryItemEdit, db
 @app.delete("/api/inventory/items/{item_id}", tags=["数量库存"])
 def api_delete_inventory_item(item_id: int, db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_admin)):
-    return crud.delete_inventory_item(db, item_id)
+    return crud.delete_inventory_item(db, item_id, current_user.name)
 
 
 @app.post("/api/inventory/items/{item_id}/action", response_model=schemas.InventoryItemOut, tags=["数量库存"])
@@ -540,15 +541,66 @@ def api_inventory_stats(db: Session = Depends(get_db), current_user: models.User
     return crud.inventory_stats(db, visible_to=None if current_user.is_admin == 1 else current_user.name)
 
 
-@app.get("/api/inventory/transactions", response_model=List[schemas.InventoryTransactionOut], tags=["数量库存"])
-def api_inventory_transactions(limit: int = Query(200, ge=1, le=1000), db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user)):
+@app.get("/api/inventory/transactions", response_model=schemas.InventoryTransactionPage, tags=["数量库存"])
+def api_inventory_transactions(
+    asset_code: Optional[str] = Query(None), operator: Optional[str] = Query(None),
+    action: Optional[str] = Query(None), keyword: Optional[str] = Query(None),
+    date_from: Optional[datetime] = Query(None), date_to: Optional[datetime] = Query(None),
+    page: int = Query(1, ge=1), page_size: int = Query(50, ge=1, le=200),
+    db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user),
+):
     q = db.query(models.InventoryTransaction).join(models.InventoryItem).options(
         contains_eager(models.InventoryTransaction.item)
     )
     if current_user.is_admin != 1:
         q = q.filter(models.InventoryItem.owner_name == current_user.name)
-    return q.order_by(models.InventoryTransaction.created_at.desc()).limit(limit).all()
+    if asset_code and asset_code.strip():
+        q = q.filter(models.InventoryItem.asset_code.ilike(f"%{asset_code.strip()}%"))
+    if operator: q = q.filter(models.InventoryTransaction.operator == operator.strip())
+    if action: q = q.filter(models.InventoryTransaction.action == action.strip())
+    if date_from: q = q.filter(models.InventoryTransaction.created_at >= date_from)
+    if date_to: q = q.filter(models.InventoryTransaction.created_at <= date_to)
+    if keyword:
+        like = f"%{keyword.strip()}%"
+        q = q.filter(or_(models.InventoryTransaction.note.ilike(like),
+            models.InventoryTransaction.borrower.ilike(like), models.InventoryTransaction.purpose.ilike(like),
+            models.InventoryTransaction.destination_department.ilike(like), models.InventoryItem.model.ilike(like)))
+    total = q.count()
+    items = q.order_by(models.InventoryTransaction.created_at.desc(), models.InventoryTransaction.id.desc())\
+        .offset((page - 1) * page_size).limit(page_size).all()
+    return {"items": items, "total": total, "page": page, "page_size": page_size}
+
+
+@app.get("/api/export/inventory-transactions.csv", tags=["导出"])
+def api_export_inventory_transactions(
+    asset_code: Optional[str] = Query(None), operator: Optional[str] = Query(None),
+    action: Optional[str] = Query(None), keyword: Optional[str] = Query(None),
+    date_from: Optional[datetime] = Query(None), date_to: Optional[datetime] = Query(None),
+    db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user),
+):
+    q = db.query(models.InventoryTransaction).join(models.InventoryItem).options(
+        contains_eager(models.InventoryTransaction.item)
+    )
+    if current_user.is_admin != 1: q = q.filter(models.InventoryItem.owner_name == current_user.name)
+    if asset_code and asset_code.strip(): q = q.filter(models.InventoryItem.asset_code.ilike(f"%{asset_code.strip()}%"))
+    if operator: q = q.filter(models.InventoryTransaction.operator == operator.strip())
+    if action: q = q.filter(models.InventoryTransaction.action == action.strip())
+    if date_from: q = q.filter(models.InventoryTransaction.created_at >= date_from)
+    if date_to: q = q.filter(models.InventoryTransaction.created_at <= date_to)
+    if keyword:
+        like = f"%{keyword.strip()}%"
+        q = q.filter(or_(models.InventoryTransaction.note.ilike(like), models.InventoryTransaction.borrower.ilike(like),
+            models.InventoryTransaction.purpose.ilike(like), models.InventoryTransaction.destination_department.ilike(like),
+            models.InventoryItem.model.ilike(like)))
+    output = io.StringIO(); writer = csv.writer(output)
+    writer.writerow(["时间", "配件", "操作人", "操作", "数量", "操作前总量", "操作后总量", "借用人", "用途", "预计归还", "接收部门", "接收人", "备注"])
+    for row in q.order_by(models.InventoryTransaction.created_at.desc()).all():
+        writer.writerow([row.created_at, row.item_name, row.operator, row.action, row.quantity,
+            row.before_total, row.after_total, row.borrower, row.purpose, row.expected_return_at or "",
+            row.destination_department, row.destination_holder, row.note])
+    data = "\ufeff" + output.getvalue()
+    return StreamingResponse(iter([data.encode("utf-8")]), media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": "attachment; filename=inventory_transactions.csv"})
 
 
 # ========== 用户管理（管理员） ==========

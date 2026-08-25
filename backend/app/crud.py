@@ -2,7 +2,7 @@
 业务逻辑层
 封装设备状态变更、操作日志记录等核心业务
 """
-from sqlalchemy.orm import Session, contains_eager
+from sqlalchemy.orm import Session, contains_eager, selectinload
 from sqlalchemy import or_, func
 from sqlalchemy.exc import IntegrityError
 from app import models, schemas
@@ -34,6 +34,11 @@ def resolve_robot_for_history(db: Session, asset_code: str) -> Optional[models.R
 VALID_DEVICE_BRANCHES = {"standard_robot", "training_platform"}
 VALID_PLATFORM_TYPES = {"humanoid", "quadruped"}
 VALID_STATUSES = {"在库", "借出", "维修中"}
+ALLOWED_STATUS_TRANSITIONS = {
+    "在库": {"借出", "维修中"},
+    "借出": {"在库", "维修中", "借出"},
+    "维修中": {"在库"},
+}
 INDIVIDUAL_INVENTORY_CATEGORIES = {"电池", "遥控器"}
 
 
@@ -157,6 +162,8 @@ def update_robot_status(
 
     # 更新状态
     new_status = payload.status.strip()
+    if new_status != robot.status and new_status not in ALLOWED_STATUS_TRANSITIONS.get(robot.status, set()):
+        raise HTTPException(status_code=400, detail=f"不允许从“{robot.status}”直接变更为“{new_status}”")
     requested_holder = payload.holder.strip()
     if new_status == "借出":
         if not payload.borrower.strip():
@@ -170,13 +177,28 @@ def update_robot_status(
         new_holder = requested_holder or robot.holder
     if not new_holder:
         raise HTTPException(status_code=400, detail="持有人不能为空")
+    next_location = payload.location.strip() if new_status != "在库" else ""
+    next_borrower = payload.borrower.strip() if new_status == "借出" else ""
+    next_purpose = payload.purpose.strip() if new_status == "借出" else ""
+    next_expected_return = payload.expected_return_at if new_status == "借出" else None
+    next_repair_description = payload.repair_description.strip() if new_status == "维修中" else ""
+    no_change = (
+        robot.status == new_status and robot.holder == new_holder and robot.location == next_location
+        and robot.borrower == next_borrower and robot.purpose == next_purpose
+        and robot.expected_return_at == next_expected_return
+        and robot.repair_description == next_repair_description
+        and not (payload.note or "").strip()
+    )
+    if no_change:
+        return robot
+
     robot.status = new_status
     robot.holder = new_holder
-    robot.location = payload.location.strip() if payload.status != "在库" else ""
-    robot.borrower = payload.borrower.strip() if payload.status == "借出" else ""
-    robot.purpose = payload.purpose.strip() if payload.status == "借出" else ""
-    robot.expected_return_at = payload.expected_return_at if payload.status == "借出" else None
-    robot.repair_description = payload.repair_description.strip() if payload.status == "维修中" else ""
+    robot.location = next_location
+    robot.borrower = next_borrower
+    robot.purpose = next_purpose
+    robot.expected_return_at = next_expected_return
+    robot.repair_description = next_repair_description
     if payload.status == "借出" and before["status"] != "借出":
         robot.borrowed_at = models.utc_now()
     elif payload.status != "借出":
@@ -286,6 +308,8 @@ def delete_robot(db: Session, robot_id: int, operator: str = "admin"):
     ).first()
     if not robot:
         raise HTTPException(status_code=404, detail="设备不存在")
+    if robot.status != "在库":
+        raise HTTPException(status_code=400, detail="只有在库设备可以归档，请先完成归还或维修验收")
     robot.is_archived = 1
     robot.archived_at = models.utc_now()
     db.add(models.OperationLog(robot_id=robot.id, asset_code=robot.asset_code, operator=operator, action="归档", before_status=robot.status,
@@ -385,6 +409,8 @@ def migrate_robot(db: Session, robot_id: int, payload: schemas.RobotMigration, o
         models.Robot.is_archived == 0,
     ).first()
     if not robot: raise HTTPException(status_code=404, detail="设备不存在或已迁移")
+    if robot.status != "在库":
+        raise HTTPException(status_code=400, detail="只有在库设备可以调出本部门")
     robot.lifecycle_status = "migrated"
     robot.migrated_at = models.utc_now()
     robot.destination_department = payload.destination_department.strip()
@@ -407,7 +433,7 @@ def undo_robot_migration(db: Session, robot_id: int, operator: str):
 
 
 def _inventory_item_query(db: Session, visible_to: Optional[str] = None):
-    q = db.query(models.InventoryItem).filter(models.InventoryItem.is_archived == 0)
+    q = db.query(models.InventoryItem).options(selectinload(models.InventoryItem.transactions)).filter(models.InventoryItem.is_archived == 0)
     return q.filter(models.InventoryItem.owner_name == visible_to) if visible_to else q
 
 
@@ -479,6 +505,8 @@ def create_inventory_item(db: Session, payload: schemas.InventoryItemCreate, ope
 def edit_inventory_item(db: Session, item_id: int, payload: schemas.InventoryItemEdit, allow_owner_change: bool = False):
     item = db.query(models.InventoryItem).filter(models.InventoryItem.id == item_id, models.InventoryItem.is_archived == 0).first()
     if not item: raise HTTPException(status_code=404, detail="库存项目不存在")
+    if payload.status.strip() != item.status:
+        raise HTTPException(status_code=400, detail="资料编辑不能修改库存状态，请使用借出、归还或维修操作")
     data = payload.model_dump()
     if not allow_owner_change:
         data["owner_name"] = item.owner_name
@@ -495,10 +523,14 @@ def edit_inventory_item(db: Session, item_id: int, payload: schemas.InventoryIte
     db.commit(); db.refresh(item); return item
 
 
-def delete_inventory_item(db: Session, item_id: int):
+def delete_inventory_item(db: Session, item_id: int, operator: str = "admin"):
     item = db.query(models.InventoryItem).filter(models.InventoryItem.id == item_id, models.InventoryItem.is_archived == 0).first()
     if not item: raise HTTPException(status_code=404, detail="库存项目不存在")
-    if item.loaned_quantity > 0: raise HTTPException(status_code=400, detail="仍有配件借出，归还后才能删除")
+    if item.status != "在库" or item.loaned_quantity > 0:
+        raise HTTPException(status_code=400, detail="只有在库配件可以作废")
+    db.add(models.InventoryTransaction(inventory_item_id=item.id, action="void", quantity=item.total_quantity,
+        before_total=item.total_quantity, after_total=0, before_available=item.available_quantity,
+        after_available=0, operator=operator, note="管理员作废库存记录"))
     item.is_archived = 2
     db.commit()
     return {"ok": True}
@@ -527,16 +559,43 @@ def inventory_action(db: Session, item_id: int, payload: schemas.InventoryAction
     allow_permanent_delete: bool = False):
     item = db.query(models.InventoryItem).filter(models.InventoryItem.id == item_id, models.InventoryItem.is_archived == 0).with_for_update().first()
     if not item: raise HTTPException(status_code=404, detail="库存项目不存在")
-    if item.category in INDIVIDUAL_INVENTORY_CATEGORIES:
-        raise HTTPException(status_code=400, detail="电池和遥控器为逐件管理，请直接修改状态")
     action, qty = payload.action, payload.quantity
+    individual = item.category in INDIVIDUAL_INVENTORY_CATEGORIES
+    if individual and qty != 1:
+        raise HTTPException(status_code=400, detail="逐件管理的配件每次只能操作 1 件")
+    if individual and action in {"stock_in", "scrap"}:
+        raise HTTPException(status_code=400, detail="逐件配件请新增或作废单件记录，不能直接调整数量")
     before_total, before_available = item.total_quantity, item.available_quantity
     result_item = item
+
+    tx_before_total, tx_before_available = before_total, before_available
 
     def move_quantity(target_status: str, target_holder: str):
         nonlocal result_item
         if qty > item.total_quantity:
             raise HTTPException(status_code=400, detail="操作数量超过当前状态数量")
+        merge_target = None
+        if target_status == "在库" and not item.asset_code:
+            merge_target = db.query(models.InventoryItem).filter(
+                models.InventoryItem.id != item.id,
+                models.InventoryItem.is_archived == 0,
+                models.InventoryItem.category == item.category,
+                models.InventoryItem.subtype == item.subtype,
+                models.InventoryItem.model == item.model,
+                models.InventoryItem.owner_name == item.owner_name,
+                models.InventoryItem.holder == target_holder,
+                models.InventoryItem.status == "在库",
+                models.InventoryItem.unit == item.unit,
+                models.InventoryItem.asset_code == "",
+            ).with_for_update().first()
+        if merge_target:
+            item.total_quantity -= qty
+            if item.status == "在库": item.available_quantity -= qty
+            elif item.status == "借出": item.loaned_quantity -= qty
+            merge_target.total_quantity += qty
+            merge_target.available_quantity += qty
+            result_item = merge_target
+            return
         if qty == item.total_quantity:
             item.status, item.holder = target_status, target_holder
             item.available_quantity = qty if target_status == "在库" else 0
@@ -585,9 +644,12 @@ def inventory_action(db: Session, item_id: int, payload: schemas.InventoryAction
             raise HTTPException(status_code=403, detail="只有管理员可以将配件数量减到 0")
         item.available_quantity -= qty; item.total_quantity -= qty
     else: raise HTTPException(status_code=400, detail="不支持的库存操作")
-    tx = models.InventoryTransaction(inventory_item_id=item.id, action=action, quantity=qty,
-        before_total=before_total, after_total=item.total_quantity, before_available=before_available,
-        after_available=item.available_quantity, borrower=payload.borrower.strip(), purpose=payload.purpose.strip(),
+    if result_item is not item:
+        tx_before_total = max(0, result_item.total_quantity - qty)
+        tx_before_available = max(0, result_item.available_quantity - (qty if result_item.status == "在库" else 0))
+    tx = models.InventoryTransaction(inventory_item_id=result_item.id, action=action, quantity=qty,
+        before_total=tx_before_total, after_total=result_item.total_quantity, before_available=tx_before_available,
+        after_available=result_item.available_quantity, borrower=payload.borrower.strip(), purpose=payload.purpose.strip(),
         destination_department=payload.destination_department.strip(), destination_holder=payload.destination_holder.strip(),
         expected_return_at=payload.expected_return_at, operator=operator, note=payload.note.strip())
     db.add(tx)

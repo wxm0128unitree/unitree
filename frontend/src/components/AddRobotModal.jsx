@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react'
 
 const DEFAULT_MODELS = ['G1', 'R1', 'Go2', 'A2', '实训台', '其他']
-const DEFAULT_STATUSES = ['在库', '借出', '维修中']
 
 export default function AddRobotModal({ onClose, onSubmit, knownModels = [], holders = [], user }) {
   const [assetCode, setAssetCode] = useState('')
@@ -11,7 +10,7 @@ export default function AddRobotModal({ onClose, onSubmit, knownModels = [], hol
   const [ownerDepartment, setOwnerDepartment] = useState('')
   const [ownerName, setOwnerName] = useState(user?.is_admin === 1 ? '' : user?.name || '')
   const [holder, setHolder] = useState(user?.name || '')
-  const [status, setStatus] = useState('在库')
+  const status = '在库'
   const [location, setLocation] = useState('')
 
   // 用户自定义的型号（持久化）
@@ -126,22 +125,15 @@ export default function AddRobotModal({ onClose, onSubmit, knownModels = [], hol
         </div>
         <div className="field"><label>当前持有人 *</label><input list="add-current-holder-options" value={holder} onChange={e=>setHolder(e.target.value)} placeholder="当前实际保管设备的人"/><datalist id="add-current-holder-options">{holders.map(h=><option key={h.phone||h.name} value={h.name}>{[h.phone,h.department].filter(Boolean).join(' · ')}</option>)}</datalist></div>
 
-        <div className="field">
-          <label>初始状态</label>
-          <select value={status} onChange={e => setStatus(e.target.value)} style={{
-            width: '100%', padding: '10px 12px', border: '1px solid var(--border)', borderRadius: 8
-          }}>
-            {DEFAULT_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
-          </select>
-        </div>
+        <div className="field"><label>初始状态</label><input disabled value="在库" /><div className="hint">新增设备先完成入库，之后再办理借出或送修。</div></div>
 
         <div className="field">
-          <label>初始去向（可选）</label>
+          <label>入库存放位置（可选）</label>
           <input
             type="text"
             value={location}
             onChange={e => setLocation(e.target.value)}
-            placeholder="持有人/地点/故障描述"
+            placeholder="如：一号仓 A-03 货架"
           />
         </div>
 
