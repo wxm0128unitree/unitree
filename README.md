@@ -61,7 +61,7 @@
 ## 界面与品牌资源
 
 - Unitree Logo：`frontend/public/assets/unitree-logo.png`
-- 机器狗全站背景：`frontend/public/assets/unitree-hero.png`
+- 机器狗全站背景：`frontend/public/assets/unitree-hero.webp`（由原始 PNG 优化生成）
 - 登录、注册和管理界面通过真实图片元素加载背景，并叠加独立遮罩保证文字可读。
 - 页面针对桌面和移动端做了响应式适配。
 
@@ -162,7 +162,7 @@ npm run build --prefix frontend
 
 1. `/api/health` 返回 `status: ok`。
 2. 首页加载新的带哈希 JS/CSS 文件。
-3. `/assets/unitree-logo.png` 与 `/assets/unitree-hero.png` 返回成功。
+3. `/assets/unitree-logo.png` 与 `/assets/unitree-hero.webp` 返回成功。
 4. 登录页能看到机器狗背景和 Unitree Logo。
 5. 登录后核对统计数据、筛选、状态操作与日志。
 

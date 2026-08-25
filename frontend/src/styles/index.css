@@ -693,7 +693,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
   width:100%;
   height:100%;
   object-fit:cover;
-  object-position:center 42%;
+  object-position:center;
   pointer-events:none;
 }
 .app::before {
@@ -701,7 +701,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
   position:fixed;
   inset:0;
   z-index:1;
-  background:linear-gradient(115deg,rgba(244,248,255,.24) 0%,rgba(239,245,255,.16) 45%,rgba(237,244,255,.1) 100%);
+  background:linear-gradient(115deg,rgba(244,248,255,.32) 0%,rgba(239,245,255,.22) 45%,rgba(237,244,255,.14) 100%);
   pointer-events:none;
 }
 .app > :not(.app-background) { position:relative; z-index:2; }
@@ -756,15 +756,14 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
   margin-bottom:28px;
   border-radius:24px;
   background:
-    radial-gradient(circle at 78% -80%,rgba(140,178,255,.65),transparent 45%),
+    radial-gradient(circle at 78% -80%,rgba(140,178,255,.75),transparent 45%),
     linear-gradient(120deg,#102551 0%,#174ca5 58%,#2168e8 100%);
   box-shadow:0 24px 54px rgba(23,76,165,.2);
   overflow:hidden;
   position:relative;
 }
 .hero-summary::after { content:""; position:absolute; width:390px; height:390px; right:-150px; bottom:-320px; border:1px solid rgba(255,255,255,.23); border-radius:50%; box-shadow:0 0 0 46px rgba(255,255,255,.045),0 0 0 96px rgba(255,255,255,.025); }
-.hero-summary > :not(.hero-dog) { position:relative; z-index:2; }
-.hero-dog { position:absolute; z-index:1; width:68%; height:210%; right:4%; top:-55%; object-fit:contain; object-position:center; opacity:.72; pointer-events:none; -webkit-mask-image:radial-gradient(ellipse 58% 48% at 50% 52%,#000 48%,transparent 88%); mask-image:radial-gradient(ellipse 58% 48% at 50% 52%,#000 48%,transparent 88%); }
+.hero-summary > * { position:relative; z-index:1; }
 .hero-summary h2 { margin:7px 0 10px; font-size:30px; font-weight:720; letter-spacing:-.02em; }
 .hero-summary p { max-width:600px; color:rgba(230,238,255,.77); font-size:14px; line-height:1.7; }
 .eyebrow, .modal-kicker, .auth-eyebrow { color:#7393c7; font-size:10px; font-weight:850; letter-spacing:.16em; opacity:1; }
