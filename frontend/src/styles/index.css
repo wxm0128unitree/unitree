@@ -757,7 +757,8 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px s
   border-radius:24px;
   background:
     linear-gradient(90deg,rgba(7,29,70,.94) 0%,rgba(15,57,126,.78) 45%,rgba(23,91,190,.38) 100%),
-    url('/assets/unitree-hero.png') center 54% / cover no-repeat;
+    url('/assets/unitree-hero.png') center 54% / cover no-repeat,
+    linear-gradient(120deg,#102551 0%,#174ca5 58%,#2168e8 100%);
   box-shadow:0 24px 54px rgba(23,76,165,.2);
   overflow:hidden;
   position:relative;
